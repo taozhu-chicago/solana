@@ -10,6 +10,7 @@ use rayon::prelude::*;
 use solana_core::banking_stage::{create_test_recorder, BankingStage, BankingStageStats};
 use solana_core::cluster_info::ClusterInfo;
 use solana_core::cluster_info::Node;
+use solana_core::cost_model::CostModel;
 use solana_core::poh_recorder::WorkingBankEntry;
 use solana_ledger::blockstore_processor::process_entries;
 use solana_ledger::entry::{next_hash, Entry};
@@ -32,7 +33,7 @@ use solana_sdk::transaction::Transaction;
 use std::collections::VecDeque;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::Receiver;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use test::Bencher;
 
@@ -91,6 +92,7 @@ fn bench_consume_buffered(bencher: &mut Bencher) {
                 None::<Box<dyn Fn()>>,
                 &BankingStageStats::default(),
                 &recorder,
+                &Arc::new(Mutex::new(CostModel::new())),
             );
         });
 
