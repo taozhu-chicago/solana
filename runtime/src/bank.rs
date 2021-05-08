@@ -42,6 +42,7 @@ use crate::{
     accounts_index::{AccountIndex, Ancestors, IndexKey},
     blockhash_queue::BlockhashQueue,
     builtins::{self, ActivationType},
+    cost_model::{CostModel, CostModelStats},
     epoch_stakes::{EpochStakes, NodeVoteAccounts},
     hashed_transaction::{HashedTransaction, HashedTransactionSlice},
     inline_spl_token_v2_0,
@@ -120,7 +121,7 @@ use std::{
     rc::Rc,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering::Relaxed},
-        LockResult, RwLockWriteGuard, {Arc, RwLock, RwLockReadGuard},
+        LockResult, RwLockWriteGuard, {Arc, Mutex, RwLock, RwLockReadGuard},
     },
     time::Duration,
     time::Instant,
@@ -916,6 +917,9 @@ pub struct Bank {
     pub drop_callback: RwLock<OptionalDropCallback>,
 
     pub freeze_started: AtomicBool,
+
+    /// cost model to be private member of bank
+    cost_model: Arc<Mutex<CostModel>>,
 }
 
 impl Default for BlockhashQueue {
@@ -1121,6 +1125,7 @@ impl Bank {
                     .map(|drop_callback| drop_callback.clone_box()),
             )),
             freeze_started: AtomicBool::new(false),
+            cost_model: Arc::new(Mutex::new(CostModel::new())),
         };
 
         datapoint_info!(
@@ -1268,6 +1273,7 @@ impl Bank {
             feature_set: new(),
             drop_callback: RwLock::new(OptionalDropCallback(None)),
             freeze_started: AtomicBool::new(fields.hash != Hash::default()),
+            cost_model: Arc::new(Mutex::new(CostModel::new())),
         };
         bank.finish_init(genesis_config, additional_builtins);
 
@@ -2704,6 +2710,7 @@ impl Bank {
             &mut error_counters,
         );
         let cache_results = self.check_status_cache(hashed_txs, age_results, &mut error_counters);
+
         if self.upgrade_epoch() {
             // Reject all non-vote transactions
             self.filter_by_vote_transactions(
@@ -2726,6 +2733,37 @@ impl Bank {
             balances.push(transaction_balances);
         }
         balances
+    }
+
+    pub fn cost_model_stats(&self) -> CostModelStats {
+        self.cost_model.lock().unwrap().get_stats()
+    }
+
+    fn filter_transactions_by_cost<'a>(
+        &self,
+        hashed_txs: impl Iterator<Item = &'a Transaction>,
+        check_results: Vec<TransactionCheckResult>,
+    ) -> (Vec<usize>, Vec<TransactionCheckResult>) {
+        let mut retryable_txs: Vec<_> = vec![];
+        let results = hashed_txs
+            .zip(check_results)
+            .enumerate()
+            .map(|(index, (tx, check_result))| {
+                if check_result.0.is_ok() {
+                    match self.cost_model.lock().unwrap().try_to_add_transaction(tx) {
+                        Some(_) => {
+                            return check_result;
+                        }
+                        None => {
+                            retryable_txs.push(index);
+                            return (Err(TransactionError::CostExceedsLimit), check_result.1);
+                        }
+                    }
+                }
+                check_result
+            })
+            .collect();
+        (retryable_txs, results)
     }
 
     #[allow(clippy::cognitive_complexity)]
@@ -2950,7 +2988,7 @@ impl Bank {
         inc_new_counter_info!("bank-process_transactions", hashed_txs.len());
         let mut error_counters = ErrorCounters::default();
 
-        let retryable_txs: Vec<_> = batch
+        let mut retryable_txs: Vec<_> = batch
             .lock_results()
             .iter()
             .enumerate()
@@ -2971,13 +3009,19 @@ impl Bank {
             max_age,
             &mut error_counters,
         );
+
+        // check transactions against cost_model, those not be accepted will be returned
+        // as retryable transactions, and excluded from downstream process (eg execution).
+        let (retryable_txs_by_cost_model, check_and_filtered_results) =
+            self.filter_transactions_by_cost(hashed_txs.as_transactions_iter(), check_results);
+        retryable_txs.extend(retryable_txs_by_cost_model);
         check_time.stop();
 
         let mut load_time = Measure::start("accounts_load");
         let mut loaded_accounts = self.rc.accounts.load_accounts(
             &self.ancestors,
             hashed_txs.as_transactions_iter(),
-            check_results,
+            check_and_filtered_results,
             &self.blockhash_queue.read().unwrap(),
             &mut error_counters,
             &self.rent_collector,
@@ -12689,5 +12733,43 @@ pub(crate) mod tests {
             bank2.rc.accounts.accounts_db.alive_account_count_in_slot(1),
             0
         );
+    }
+
+    #[test]
+    fn test_bank_fitler_transactions_by_cost_ok() {
+        solana_logger::setup();
+        let GenesisConfigInfo { genesis_config, .. } = create_genesis_config_with_leader(
+            1_000_000_000_000_000,
+            &Pubkey::new_unique(),
+            bootstrap_validator_stake_lamports(),
+        );
+        let bank = Bank::new(&genesis_config);
+
+        let mock_program_id = Pubkey::new(&[2u8; 32]);
+        let mock_transaction = create_mock_transaction(
+            &Keypair::new(),
+            &Keypair::new(),
+            &Keypair::new(),
+            &Keypair::new(),
+            mock_program_id,
+            genesis_config.hash(),
+        );
+        let input_check_results = vec![(Ok(()), None)];
+        let (retryable_txs, check_results) =
+            bank.filter_transactions_by_cost(&mut [mock_transaction].iter(), input_check_results);
+
+        // if transactino is booked by cost model, then it will not retry
+        //*
+        assert_eq!(0, retryable_txs.len());
+        assert_eq!(1, check_results.len());
+        assert!(check_results[0].0.is_ok());
+        // */
+        // if transaction not allowed by cost model, then proper err is logged
+        /*
+        assert_eq!( 1, retryable_txs.len() );
+        assert_eq!( 0, retryable_txs[0] );
+        assert_eq!( 1, check_results.len() );
+        assert_eq!( Err(TransactionError::CostExceedsLimit), check_results[0].0 );
+        // */
     }
 }

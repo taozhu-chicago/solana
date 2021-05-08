@@ -16,6 +16,8 @@ pub mod bloom;
 pub mod builtins;
 pub mod commitment;
 pub mod contains;
+pub mod cost_model;
+pub mod cost_tracker;
 pub mod epoch_stakes;
 pub mod genesis_utils;
 pub mod hardened_unpack;

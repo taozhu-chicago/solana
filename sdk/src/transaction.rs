@@ -98,6 +98,10 @@ pub enum TransactionError {
     /// Transaction processing left an account with an outstanding borrowed reference
     #[error("Transaction processing left an account with an outstanding borrowed reference")]
     AccountBorrowOutstanding,
+
+    /// Transaction cost exceeds the cost model limit
+    #[error("Transaction cost exceeds the cost model limit")]
+    CostExceedsLimit,
 }
 
 pub type Result<T> = result::Result<T, TransactionError>;

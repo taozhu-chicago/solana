@@ -1177,6 +1177,15 @@ impl ReplayStage {
             );
 
             let tpu_bank = bank_forks.write().unwrap().insert(tpu_bank);
+
+            if let Some(bank) = poh_recorder.lock().unwrap().bank() {
+                debug!(
+                    "final cost model for bank {:?} is {:?}",
+                    bank,
+                    bank.cost_model_stats()
+                );
+            }
+
             poh_recorder.lock().unwrap().set_bank(&tpu_bank);
         } else {
             error!("{} No next leader found", my_pubkey);
