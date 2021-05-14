@@ -10,11 +10,20 @@ use solana_sdk::{
 };
 use std::{collections::HashMap, str::FromStr};
 
-// TODO  revisit these hardcoded numbers, better get from mainnet log
+// from mainnet-beta data, taking `vote program` as 1 COST_UNIT to load and execute
+// amount all type programs, the costs are:
+// min: 0.9 COST_UNIT
+// max: 110 COST UNIT
+// Median: 12 COST_UNIT
+// Average: 19 COST_UNIT
 const COST_UNIT: u32 = 1;
-const DEFAULT_PROGRAM_COST: u32 = COST_UNIT * 500;
-const CHAIN_MAX_COST: u32 = COST_UNIT * 100_000;
-const BLOCK_MAX_COST: u32 = COST_UNIT * 100_000_000;
+const DEFAULT_PROGRAM_COST: u32 = COST_UNIT * 100;
+// running 'ledger-tool compute-cost' over mainnet ledger, the alrgest block cost
+// is 575_687, and the largest chain cost (eg account cost) is 559_000
+// Configuring cost model to have larger block limit and smaller account limit
+// to encourage packing parallelizable transactions in block.
+const CHAIN_MAX_COST: u32 = COST_UNIT * 10_000;
+const BLOCK_MAX_COST: u32 = COST_UNIT * 10_000_000;
 
 #[derive(Default, Debug)]
 pub struct CostModelStats {
@@ -105,21 +114,20 @@ impl CostModel {
             chain_max, block_max
         );
 
-        // NOTE: message.rs has following lazy_static program ids. Can probably use them to define
-        // `cost` for each type.
+        // NOTE: message.rs has following lazy_static program ids.
         let parse = |s| Pubkey::from_str(s).unwrap();
         Self {
             cost_metrics: costmetrics![
                 parse("Config1111111111111111111111111111111111111") => COST_UNIT,
-                parse("Feature111111111111111111111111111111111111") => COST_UNIT,
-                parse("NativeLoader1111111111111111111111111111111") => COST_UNIT,
-                parse("Stake11111111111111111111111111111111111111") => COST_UNIT,
+                parse("Feature111111111111111111111111111111111111") => COST_UNIT * 2,
+                parse("NativeLoader1111111111111111111111111111111") => COST_UNIT * 2,
+                parse("Stake11111111111111111111111111111111111111") => COST_UNIT * 2,
                 parse("StakeConfig11111111111111111111111111111111") => COST_UNIT,
-                parse("Vote111111111111111111111111111111111111111") => COST_UNIT * 5,
-                system_program::id()                                 => COST_UNIT,
-                bpf_loader::id()                                     => COST_UNIT * 1_000,
-                bpf_loader_deprecated::id()                          => COST_UNIT * 1_000,
-                bpf_loader_upgradeable::id()                         => COST_UNIT * 1_000
+                parse("Vote111111111111111111111111111111111111111") => COST_UNIT,
+                system_program::id()                                 => COST_UNIT * 8,
+                bpf_loader::id()                                     => COST_UNIT * 500,
+                bpf_loader_deprecated::id()                          => COST_UNIT * 500,
+                bpf_loader_upgradeable::id()                         => COST_UNIT * 500
             ],
             cost_tracker: CostTracker::new(chain_max, block_max),
             current_bank_slot: 0,
@@ -210,13 +218,13 @@ mod tests {
 
         // find cost for known programs
         assert_eq!(
-            COST_UNIT * 5,
+            COST_UNIT,
             *testee.find_instruction_cost(
                 &Pubkey::from_str("Vote111111111111111111111111111111111111111").unwrap()
             )
         );
         assert_eq!(
-            COST_UNIT * 1_000,
+            COST_UNIT * 500,
             *testee.find_instruction_cost(&bpf_loader::id())
         );
 
@@ -242,7 +250,7 @@ mod tests {
         );
 
         // expected cost for one system transfer instructions
-        let expected_cost = COST_UNIT;
+        let expected_cost = COST_UNIT * 8;
 
         let testee = CostModel::new();
         assert_eq!(
@@ -264,7 +272,7 @@ mod tests {
         debug!("many transfer transaction {:?}", tx);
 
         // expected cost for two system transfer instructions
-        let expected_cost = COST_UNIT * 2;
+        let expected_cost = COST_UNIT * 8 * 2;
 
         let testee = CostModel::new();
         assert_eq!(expected_cost, testee.find_transaction_cost(&tx));
@@ -422,7 +430,7 @@ mod tests {
     fn test_cost_model_can_be_shared_concurrently() {
         let (mint_keypair, start_hash) = test_setup();
         let number_threads = 10;
-        let expected_total_cost = COST_UNIT * number_threads;
+        let expected_total_cost = COST_UNIT * 8 * number_threads;
 
         let cost_model = Arc::new(Mutex::new(CostModel::new()));
 
