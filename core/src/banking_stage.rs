@@ -341,6 +341,12 @@ impl BankingStage {
         };
         has_more_unprocessed_transactions
     }
+    
+    fn reset_cost_model_if_new_bank(
+        cost_model: &Arc<Mutex<CostModel>>,
+        slot: Slot ) {
+        cost_model.lock().unwrap().reset_if_new_bank(slot);
+    }
 
     #[allow(clippy::too_many_arguments)]
     pub fn consume_buffered_packets(
@@ -380,7 +386,7 @@ impl BankingStage {
             } else {
                 let bank_start = poh_recorder.lock().unwrap().bank_start();
                 if let Some((bank, bank_creation_time)) = bank_start {
-                    cost_model.lock().unwrap().reset_if_new_bank(bank.slot());
+                    Self::reset_cost_model_if_new_bank(cost_model, bank.slot());
                     let (processed, verified_txs_len, new_unprocessed_indexes) =
                         Self::process_packets_transactions(
                             &bank,
@@ -506,7 +512,7 @@ impl BankingStage {
             let poh = poh_recorder.lock().unwrap();
             bank_start = poh.bank_start();
             if let Some((ref bank, _)) = bank_start {
-                cost_model.lock().unwrap().reset_if_new_bank(bank.slot());
+                Self::reset_cost_model_if_new_bank(cost_model, bank.slot());
             };
             (
                 poh.leader_after_n_slots(FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET),
@@ -1241,7 +1247,7 @@ impl BankingStage {
                 continue;
             }
             let (bank, bank_creation_time) = bank_start.unwrap();
-            cost_model.lock().unwrap().reset_if_new_bank(bank.slot());
+            Self::reset_cost_model_if_new_bank(cost_model, bank.slot());
 
             let (processed, verified_txs_len, unprocessed_indexes) =
                 Self::process_packets_transactions(
