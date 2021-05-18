@@ -341,10 +341,8 @@ impl BankingStage {
         };
         has_more_unprocessed_transactions
     }
-    
-    fn reset_cost_model_if_new_bank(
-        cost_model: &Arc<Mutex<CostModel>>,
-        slot: Slot ) {
+
+    fn reset_cost_model_if_new_bank(cost_model: &Arc<Mutex<CostModel>>, slot: Slot) {
         cost_model.lock().unwrap().reset_if_new_bank(slot);
     }
 
@@ -1017,7 +1015,11 @@ impl BankingStage {
                 if secp256k1_program_enabled {
                     tx.verify_precompiles().ok()?;
                 }
-                cost_model.lock().unwrap().try_to_add_transaction(&tx)?;
+
+                let mut locked_cost_model = cost_model.lock().unwrap();
+                locked_cost_model.try_to_add_transaction(&tx)?;
+                drop(locked_cost_model);
+
                 let message_bytes = Self::packet_message(p)?;
                 let message_hash = Message::hash_raw_message(message_bytes);
                 Some((
