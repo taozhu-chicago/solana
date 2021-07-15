@@ -219,6 +219,14 @@ pub mod send_to_tpu_vote_port {
     solana_sdk::declare_id!("C5fh68nJ7uyKAuYZg2x9sEQ5YrVf3dkW6oojNBSc3Jvo");
 }
 
+pub mod cost_model {
+    solana_sdk::declare_id!("9FVQ9NkYZjS8xeR2pruUdwWLpFrXDoqBSjJKyrbnKaqd");
+}
+
+pub mod tx_wide_compute_cap {
+    solana_sdk::declare_id!("5ekBxc8itEnPv4NzGJtr8BVVQLNMQuLMNQQj7pHoLNZ9");
+}
+
 lazy_static! {
     /// Map of feature identifiers to user-visible description
     pub static ref FEATURE_NAMES: HashMap<Pubkey, &'static str> = [
@@ -274,6 +282,8 @@ lazy_static! {
         (reduce_required_deploy_balance::id(), "reduce required payer balance for program deploys"),
         (stakes_remove_delegation_if_inactive::id(), "remove delegations from stakes cache when inactive"),
         (send_to_tpu_vote_port::id(), "Send votes to the tpu vote port"),
+        (cost_model::id(), "cost model feature that regulates block cost limits"),
+        (tx_wide_compute_cap::id(), "Transaction wide compute cap"),
         /*************** ADD NEW FEATURES HERE ***************/
     ]
     .iter()
