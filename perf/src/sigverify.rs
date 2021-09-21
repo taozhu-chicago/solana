@@ -1189,7 +1189,7 @@ mod tests {
             let mut tx = test_tx();
             tx.message.instructions[0].data = vec![1, 2, 3];
             let mut packet = sigverify::make_packet_from_transaction(tx);
-            let packet_offsets = do_get_packet_offsets(&packet, 0).unwrap();
+            let packet_offsets = do_get_packet_offsets(&packet, 0, false).unwrap();
             check_for_simple_vote_transaction(&mut packet, &packet_offsets, 0).ok();
             assert!(!packet.meta.is_simple_vote_tx);
         }
@@ -1199,7 +1199,7 @@ mod tests {
             let mut tx = vote_tx();
             tx.message.instructions[0].data = vec![1, 2, 3];
             let mut packet = sigverify::make_packet_from_transaction(tx);
-            let packet_offsets = do_get_packet_offsets(&packet, 0).unwrap();
+            let packet_offsets = do_get_packet_offsets(&packet, 0, false).unwrap();
             check_for_simple_vote_transaction(&mut packet, &packet_offsets, 0).ok();
             assert!(packet.meta.is_simple_vote_tx);
         }
@@ -1220,7 +1220,7 @@ mod tests {
                 ],
             );
             let mut packet = sigverify::make_packet_from_transaction(tx);
-            let packet_offsets = do_get_packet_offsets(&packet, 0).unwrap();
+            let packet_offsets = do_get_packet_offsets(&packet, 0, false).unwrap();
             check_for_simple_vote_transaction(&mut packet, &packet_offsets, 0).ok();
             assert!(!packet.meta.is_simple_vote_tx);
         }
@@ -1243,7 +1243,7 @@ mod tests {
             .iter_mut()
             .enumerate()
             .for_each(|(index, mut packet)| {
-                let packet_offsets = do_get_packet_offsets(&packet, current_offset).unwrap();
+                let packet_offsets = do_get_packet_offsets(&packet, current_offset, false).unwrap();
                 check_for_simple_vote_transaction(&mut packet, &packet_offsets, current_offset)
                     .ok();
                 if index == 1 {
