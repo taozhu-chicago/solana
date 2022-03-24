@@ -3361,12 +3361,15 @@ impl Bank {
                     NoncePartial::new(address, account).lamports_per_signature()
                 })
         })?;
-        Some(Self::calculate_fee(
-            message,
-            lamports_per_signature,
-            &self.fee_structure,
-            self.feature_set.is_active(&tx_wide_compute_cap::id()),
-        ))
+        Some(
+            Self::calculate_fee(
+                message,
+                lamports_per_signature,
+                &self.fee_structure,
+                self.feature_set.is_active(&tx_wide_compute_cap::id()),
+            )
+            .0,
+        )
     }
 
     pub fn get_fee_for_message_with_lamports_per_signature(
@@ -3380,6 +3383,7 @@ impl Bank {
             &self.fee_structure,
             self.feature_set.is_active(&tx_wide_compute_cap::id()),
         )
+        .0
     }
 
     #[deprecated(
@@ -4357,12 +4361,13 @@ impl Bank {
     }
 
     /// Calculate fee for `SanitizedMessage`
+    /// returns (total_fee, max_units)
     pub fn calculate_fee(
         message: &SanitizedMessage,
         lamports_per_signature: u64,
         fee_structure: &FeeStructure,
         tx_wide_compute_cap: bool,
-    ) -> u64 {
+    ) -> (u64, u64) {
         if tx_wide_compute_cap {
             // Fee based on compute units and signatures
             const BASE_CONGESTION: f64 = 5_000.0;
@@ -4394,15 +4399,21 @@ impl Bank {
                         .unwrap_or_default()
                 });
 
-            ((additional_fee
-                .saturating_add(signature_fee)
-                .saturating_add(write_lock_fee)
-                .saturating_add(compute_fee) as f64)
-                * congestion_multiplier)
-                .round() as u64
+            (
+                ((additional_fee
+                    .saturating_add(signature_fee)
+                    .saturating_add(write_lock_fee)
+                    .saturating_add(compute_fee) as f64)
+                    * congestion_multiplier)
+                    .round() as u64,
+                compute_budget.max_units,
+            )
         } else {
             // Fee based only on signatures
-            lamports_per_signature.saturating_mul(Self::get_num_signatures_in_message(message))
+            (
+                lamports_per_signature.saturating_mul(Self::get_num_signatures_in_message(message)),
+                compute_budget::MAX_UNITS as u64,
+            )
         }
     }
 
@@ -4437,7 +4448,7 @@ impl Bank {
 
                 let lamports_per_signature =
                     lamports_per_signature.ok_or(TransactionError::BlockhashNotFound)?;
-                let fee = Self::calculate_fee(
+                let (fee, _units) = Self::calculate_fee(
                     tx.message(),
                     lamports_per_signature,
                     &self.fee_structure,
@@ -9592,7 +9603,7 @@ pub(crate) mod tests {
         } = create_genesis_config_with_leader(mint, &leader, 3);
         genesis_config.fee_rate_governor = FeeRateGovernor::new(4, 0); // something divisible by 2
 
-        let expected_fee_paid = Bank::calculate_fee(
+        let (expected_fee_paid, _max_units) = Bank::calculate_fee(
             &SanitizedMessage::try_from(Message::new(&[], Some(&Pubkey::new_unique()))).unwrap(),
             genesis_config
                 .fee_rate_governor
@@ -9777,7 +9788,7 @@ pub(crate) mod tests {
         let tx = system_transaction::transfer(&mint_keypair, &key.pubkey(), 1, cheap_blockhash);
         assert_eq!(bank.process_transaction(&tx), Ok(()));
         assert_eq!(bank.get_balance(&key.pubkey()), 1);
-        let cheap_fee = Bank::calculate_fee(
+        let (cheap_fee, _max_units) = Bank::calculate_fee(
             &SanitizedMessage::try_from(Message::new(&[], Some(&Pubkey::new_unique()))).unwrap(),
             cheap_lamports_per_signature,
             &FeeStructure::default(),
@@ -9794,7 +9805,7 @@ pub(crate) mod tests {
         let tx = system_transaction::transfer(&mint_keypair, &key.pubkey(), 1, expensive_blockhash);
         assert_eq!(bank.process_transaction(&tx), Ok(()));
         assert_eq!(bank.get_balance(&key.pubkey()), 1);
-        let expensive_fee = Bank::calculate_fee(
+        let (expensive_fee, _max_units) = Bank::calculate_fee(
             &SanitizedMessage::try_from(Message::new(&[], Some(&Pubkey::new_unique()))).unwrap(),
             expensive_lamports_per_signature,
             &FeeStructure::default(),
@@ -9915,7 +9926,8 @@ pub(crate) mod tests {
                                 .lamports_per_signature,
                             &FeeStructure::default(),
                             true,
-                        ) * 2
+                        )
+                        .0 * 2
                     )
                     .0
         );
@@ -16196,13 +16208,13 @@ pub(crate) mod tests {
             SanitizedMessage::try_from(Message::new(&[], Some(&Pubkey::new_unique()))).unwrap();
         assert_eq!(
             Bank::calculate_fee(&message, 0, &FeeStructure::default(), false),
-            0
+            (0, compute_budget::MAX_UNITS as u64)
         );
 
         // One signature, a fee.
         assert_eq!(
             Bank::calculate_fee(&message, 1, &FeeStructure::default(), false),
-            1
+            (1, compute_budget::MAX_UNITS as u64)
         );
 
         // Two signatures, double the fee.
@@ -16213,7 +16225,7 @@ pub(crate) mod tests {
         let message = SanitizedMessage::try_from(Message::new(&[ix0, ix1], Some(&key0))).unwrap();
         assert_eq!(
             Bank::calculate_fee(&message, 2, &FeeStructure::default(), false),
-            4
+            (4, compute_budget::MAX_UNITS as u64)
         );
     }
 
@@ -16229,7 +16241,10 @@ pub(crate) mod tests {
             SanitizedMessage::try_from(Message::new(&[], Some(&Pubkey::new_unique()))).unwrap();
         assert_eq!(
             Bank::calculate_fee(&message, 1, &fee_structure, true),
-            max_fee + lamports_per_signature
+            (
+                max_fee + lamports_per_signature,
+                compute_budget::MAX_UNITS as u64
+            )
         );
 
         // Three signatures, two instructions, no unit request
@@ -16241,7 +16256,10 @@ pub(crate) mod tests {
                 .unwrap();
         assert_eq!(
             Bank::calculate_fee(&message, 1, &fee_structure, true),
-            max_fee + 3 * lamports_per_signature
+            (
+                max_fee + 3 * lamports_per_signature,
+                compute_budget::MAX_UNITS as u64
+            )
         );
 
         // Explicit fee schedule
@@ -16267,7 +16285,7 @@ pub(crate) mod tests {
             let message =
                 SanitizedMessage::try_from(Message::new(&[ix0, ix1], Some(&Pubkey::new_unique())))
                     .unwrap();
-            let fee = Bank::calculate_fee(&message, 1, &fee_structure, true);
+            let (fee, _units) = Bank::calculate_fee(&message, 1, &fee_structure, true);
             assert_eq!(
                 fee,
                 sol_to_lamports(pair.1) + lamports_per_signature + ADDITIONAL_FEE
@@ -16303,7 +16321,7 @@ pub(crate) mod tests {
         .unwrap();
         assert_eq!(
             Bank::calculate_fee(&message, 1, &FeeStructure::default(), false),
-            2
+            (2, compute_budget::MAX_UNITS as u64)
         );
 
         secp_instruction1.data = vec![0];
@@ -16315,7 +16333,7 @@ pub(crate) mod tests {
         .unwrap();
         assert_eq!(
             Bank::calculate_fee(&message, 1, &FeeStructure::default(), false),
-            11
+            (11, compute_budget::MAX_UNITS as u64)
         );
     }
 
