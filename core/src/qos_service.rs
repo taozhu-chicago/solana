@@ -170,21 +170,31 @@ impl QosService {
         (select_results, num_included)
     }
 
-    pub fn commit_transaction_cost(
-        &self,
-        bank: &Arc<Bank>,
-        transaction: &SanitizedTransaction,
-        actual_units: Option<u64>,
-    ) {
-        bank.write_cost_tracker()
-            .unwrap()
-            .commit_transaction(transaction, actual_units);
-    }
 
-    pub fn cancel_transaction_cost(&self, bank: &Arc<Bank>, transaction: &SanitizedTransaction) {
-        bank.write_cost_tracker()
-            .unwrap()
-            .cancel_transaction(transaction);
+    /// To commit transaction cost to cost_tracker if it was executed successfully;
+    /// Otherwise cancel it from being committed, therefore prevents cost_tracker
+    /// being inflated with unsuccessfully executed transactions.
+    pub fn commit_or_cancel_transaction_cost<'a>(
+        transactions: impl Iterator<Item = &'a SanitizedTransaction>,
+        transactions_costs: impl Iterator<Item = &'a TransactionCost>,
+        transaction_results: impl Iterator<Item = &'a transaction::Result<()>>,
+        retryable_transaction_indexes: &[usize],
+        bank: &Arc<Bank>,
+    ) {
+        let mut cost_tracker = bank.write_cost_tracker().unwrap();
+        transactions
+            .zip(transactions_costs)
+            .zip(transaction_results)
+            .enumerate()
+            .for_each(|(index, ((tx, tx_cost), result))| {
+                if result.is_ok() && retryable_transaction_indexes.contains(&index) {
+                    cost_tracker.cancel_transaction(tx, tx_cost);
+                } else {
+                    // TODO the 3rd param is for transaction's actual units. Will have
+                    // to plumb it in next; For now, it simply commit estimated units.
+                    cost_tracker.commit_transaction(tx, tx_cost, None);
+                }
+            });
     }
 
     // metrics are reported by bank slot
