@@ -1,4 +1,5 @@
 use {
+    min_max_heap::MinMaxHeap,
     retain_mut::RetainMut,
     solana_gossip::weighted_shuffle::WeightedShuffle,
     solana_perf::packet::{limited_deserialize, Packet, PacketBatch},
@@ -50,8 +51,64 @@ pub struct DeserializedPacket {
     #[allow(dead_code)]
     is_simple_vote: bool,
 
+    // priority by fee/CU and sedner_stake
     fee_per_cu: Option<FeePerCu>,
+    sender_stake: u64,
+
+    // index of packet in PacketBatch
+    packet_index: usize,
+
+    // ref to batch that has thispacket
+    owner: Weak<RefCell<DeserializedPacketBatch>>,
 }
+
+/// Impl Ord for DeserializedPacket for MinMaxHeap
+impl Ord for DeserializedPacket {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let self_has_fee = self.fee_per_cu.is_some();
+        let other_has_fee = other.fee_per_cu.is_some();
+
+        if self_has_fee && !other_has_fee {
+            Ordering::Greater
+        } else if !self_has_fee && other_has_fee {
+            Ordering::Lesser
+        } else if self_has_fee && other_has_fee {
+            self.fee_per_cu.unwrap().cmp(&other.fee_per_cu.unwrap())
+                .then(self.stake.cmp(other.stake))
+        } else {
+          //!self_has_fee && !other_has_fee
+          self.stake.cmp(other.stake)
+        }
+    }
+}
+
+impl PartialOrd for DeserializedPacket {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for DeserializedPacket {
+    fn eq(&self, other: &Self) -> bool {
+        let self_has_fee = self.fee_per_cu.is_some();
+        let other_has_fee = other.fee_per_cu.is_some();
+
+        if self_has_fee && !other_has_fee {
+            false
+        } else if !self_has_fee && other_has_fee {
+            false
+        } else if self_has_fee && other_has_fee {
+            self.fee_per_cu.unwrap() == other.fee_per_cu.unwrap() &&
+            self.stake == other.stake
+        } else {
+          //!self_has_fee && !other_has_fee
+          self.stake == other.stake
+        }
+    }
+}
+
+impl Eq for DeserializedPacket {}
+
 
 /// Defines the type of entry in `UnprocessedPacketBatches`, it holds original packet_batch
 /// for forwarding, as well as `forwarded` flag;
