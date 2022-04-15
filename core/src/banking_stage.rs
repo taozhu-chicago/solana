@@ -969,6 +969,7 @@ impl BankingStage {
     ) {
         let recorder = poh_recorder.lock().unwrap().recorder();
         let mut buffered_packet_batches = UnprocessedPacketBatches::with_capacity(batch_limit);
+        let mut buffered_packet_index = PacketIndex::with_capacity(batch_limit * MAX_NUM_TRANSACTIONS_PER_BATCH);
         let mut banking_stage_stats = BankingStageStats::new(id);
         let qos_service = QosService::new(cost_model, id);
         let mut slot_metrics_tracker = LeaderSlotMetricsTracker::new(id);
@@ -1041,6 +1042,7 @@ impl BankingStage {
                         id,
                         batch_limit,
                         &mut buffered_packet_batches,
+                        &mut buffered_packet_index,
                         &mut banking_stage_stats,
                         &mut slot_metrics_tracker,
                     )
@@ -1927,6 +1929,7 @@ impl BankingStage {
         id: u32,
         batch_limit: usize,
         buffered_packet_batches: &mut UnprocessedPacketBatches,
+        buffered_packet_index: &mut PacketIndex,
         banking_stage_stats: &mut BankingStageStats,
         slot_metrics_tracker: &mut LeaderSlotMetricsTracker,
     ) -> Result<(), RecvTimeoutError> {
@@ -1962,6 +1965,7 @@ impl BankingStage {
 
             Self::push_unprocessed(
                 buffered_packet_batches,
+                buffered_packet_index,
                 packet_batch,
                 packet_indexes,
                 &mut dropped_packet_batches_count,
@@ -2015,6 +2019,7 @@ impl BankingStage {
 
     fn push_unprocessed(
         unprocessed_packet_batches: &mut UnprocessedPacketBatches,
+        buffered_packet_index: &mut PacketIndex,
         packet_batch: PacketBatch,
         packet_indexes: Vec<usize>,
         dropped_packet_batches_count: &mut usize,
@@ -2033,9 +2038,11 @@ impl BankingStage {
             slot_metrics_tracker
                 .increment_newly_buffered_packets_count(packet_indexes.len() as u64);
 
+            let deserialized_packet_batch = DeserializedPacketBatch::new(buffered_packet_index, packet_batch, packet_indexes, false);
             let (number_of_dropped_batches, number_of_dropped_packets) = unprocessed_packet_batches
                 .insert_batch(
-                    DeserializedPacketBatch::new(packet_batch, packet_indexes, false),
+                    buffered_packet_index,
+                    deserialized_packet_batch,
                     batch_limit,
                 );
 

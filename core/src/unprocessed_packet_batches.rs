@@ -18,7 +18,10 @@ use {
         transaction::{AddressLoader, VersionedTransaction},
     },
     std::{
+        cell::RefCell,
+        cmp::Ordering,
         collections::{BTreeMap, HashMap, VecDeque},
+        rc::{Rc, Weak},
         mem::size_of,
         sync::Arc,
     },
@@ -37,6 +40,27 @@ impl FeePerCu {
         slot - self.slot >= MAX_SLOT_AGE
     }
 }
+
+impl Ord for FeePerCu {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.fee_per_cu.cmp(&other.fee_per_cu)
+    }
+}
+
+impl PartialOrd for FeePerCu {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for FeePerCu {
+    fn eq(&self, other: &Self) -> bool {
+        self.fee_per_cu == other.fee_per_cu
+    }
+}
+
+impl Eq for FeePerCu {}
+
 
 /// Holds deserialized messages, as well as computed message_hash and other things needed to create
 /// SanitizedTransaction
@@ -71,13 +95,13 @@ impl Ord for DeserializedPacket {
         if self_has_fee && !other_has_fee {
             Ordering::Greater
         } else if !self_has_fee && other_has_fee {
-            Ordering::Lesser
+            Ordering::Less
         } else if self_has_fee && other_has_fee {
             self.fee_per_cu.unwrap().cmp(&other.fee_per_cu.unwrap())
-                .then(self.stake.cmp(other.stake))
+                .then(self.sender_stake.cmp(&other.sender_stake))
         } else {
-          //!self_has_fee && !other_has_fee
-          self.stake.cmp(other.stake)
+          // !self_has_fee && !other_has_fee
+          self.sender_stake.cmp(&other.sender_stake)
         }
     }
 }
@@ -99,10 +123,10 @@ impl PartialEq for DeserializedPacket {
             false
         } else if self_has_fee && other_has_fee {
             self.fee_per_cu.unwrap() == other.fee_per_cu.unwrap() &&
-            self.stake == other.stake
+            self.sender_stake == other.sender_stake
         } else {
-          //!self_has_fee && !other_has_fee
-          self.stake == other.stake
+          // !self_has_fee && !other_has_fee
+          self.sender_stake == other.sender_stake
         }
     }
 }
@@ -119,9 +143,10 @@ pub struct DeserializedPacketBatch {
     pub packet_batch: PacketBatch,
     pub forwarded: bool,
     // indexes of valid packets in batch, and their corresponding deserialized_packet
-    pub unprocessed_packets: HashMap<usize, DeserializedPacket>,
+    pub unprocessed_packets: HashMap<usize, Rc<DeserializedPacket>>,
 }
 
+// TODO TAO - may not need Locator anymore
 /// References to a packet in `UnprocessedPacketBatches`, where
 /// - batch_index references to `DeserializedPacketBatch`,
 /// - packet_index references to `packet` within `DeserializedPacketBatch.packet_batch`
@@ -134,13 +159,17 @@ pub struct PacketLocator {
 }
 
 /// Currently each banking_stage thread has a `UnprocessedPacketBatches` buffer to store
-/// PacketBatch's received from sigverify. Banking thread continuously scans the buffer
-/// to pick proper packets to add to the block.
+/// PacketBatch's received from sigverify. When a packetBatch is added, the PacketIndex
+/// that sorts each packet by priority is updated.
 #[derive(Default)]
-pub struct UnprocessedPacketBatches(VecDeque<DeserializedPacketBatch>);
+pub struct UnprocessedPacketBatches(VecDeque<Rc<RefCell<DeserializedPacketBatch>>>);
+
+// TODO TAO - index lives outside `UnprocessedPacketBatches` for now, can make as field
+/// PacketIndex sorts individual packet by its priority
+pub type PacketIndex = MinMaxHeap<Rc<DeserializedPacket>>;
 
 impl std::ops::Deref for UnprocessedPacketBatches {
-    type Target = VecDeque<DeserializedPacketBatch>;
+    type Target = VecDeque<Rc<RefCell<DeserializedPacketBatch>>>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -157,7 +186,7 @@ impl RetainMut<DeserializedPacketBatch> for UnprocessedPacketBatches {
     where
         F: FnMut(&mut DeserializedPacketBatch) -> bool,
     {
-        RetainMut::retain_mut(&mut self.0, f);
+        RetainMut::retain_mut(&mut self.0, |entry| f(entry.borrow_mut()));
     }
 }
 
@@ -183,13 +212,23 @@ impl UnprocessedPacketBatches {
     /// returns tuple of (number of batch dropped, number of packets dropped)
     pub fn insert_batch(
         &mut self,
-        deserialized_packet_batch: DeserializedPacketBatch,
+        packet_index: &mut PacketIndex,
+        deserialized_packet_batch: Rc<RefCell<DeserializedPacketBatch>>,
         batch_limit: usize,
     ) -> (Option<usize>, Option<usize>) {
-        if deserialized_packet_batch.unprocessed_packets.is_empty() {
+        if deserialized_packet_batch.borrow().unprocessed_packets.is_empty() {
             return (None, None);
         }
 
+        self.push_back(deserialized_packet_batch);
+        let num_batches_to_remove = self.len().saturating_sub(batch_limit);
+        if deserialized_packet_batch > 0 {
+            self.remove_batches_by_priority(packet_index, num_batches_to_remove)
+        }
+        else {
+            (None, None)
+        }
+/*
         if self.len() >= batch_limit {
             let (_, dropped_batches_count, dropped_packets_count) =
                 self.replace_packet_by_priority(deserialized_packet_batch);
@@ -198,6 +237,44 @@ impl UnprocessedPacketBatches {
             self.push_back(deserialized_packet_batch);
             (None, None)
         }
+// */
+    }
+
+    /// Utilizing existing priority packet index to efficiently drop low priority packets.
+    /// Compare to other approach, at the time of drop batch, it does not need to do:
+    /// 1. Scan and index buffer -- it is eagerly prepared at batch insertion;
+    /// 2. Lookup batch to remove low priority packet from its unprocessed list.
+    /// 3. Also added a option to drop multiple batches at a time to further improve efficiency.
+    fn remove_batches_by_priority(
+        &mut self, 
+        index: &mut PacketIndex,
+        num_batches_to_remove: usize,
+    ) -> (Option<usize>, Option<usize>) {
+        let mut removed_packet_count = 0;
+        let mut removed_batch_count = 0;
+        while let Some(pkt) = index.pop_min() {
+            debug!("popped min from index: {:?}",  pkt);
+
+            // index yields ref to min priority packet, using packet.owner to reference to 
+            // batch, then remove the packet from batch's unprocessed list
+            let batch = pkt.owner.upgrade().unwrap();
+            let _popped_packet = batch.borrow_mut().packets.remove(&pkt.index).unwrap();
+            removed_packet_count = removed_packet_count.saturating_add(1);
+
+            // be more efficient to remove multiple batches at one go
+            if batch.borrow().packets.is_empty() {
+                removed_batch_count = removed_batch_count.saturating_add(1);
+                if removed_batch_count >= num_batches_to_remove {
+                    break;
+                }
+            }
+        }
+        // still need to iterate through VecDeque buffer to remove empty batches
+        self.retain(|batch| {
+            !batch.borrow().packets.is_empty()
+        });
+
+        (Some(removed_packet_count), Some(removed_batch_count))
     }
 
     /// prioritize unprocessed packets by their fee/CU then by sender's stakes
@@ -476,6 +553,7 @@ impl UnprocessedPacketBatches {
 }
 
 impl DeserializedPacketBatch {
+/*
     pub fn new(packet_batch: PacketBatch, packet_indexes: Vec<usize>, forwarded: bool) -> Self {
         let unprocessed_packets = Self::deserialize_packets(&packet_batch, &packet_indexes);
         Self {
@@ -484,19 +562,32 @@ impl DeserializedPacketBatch {
             forwarded,
         }
     }
-
-    fn deserialize_packets(
-        packet_batch: &PacketBatch,
-        packet_indexes: &[usize],
-    ) -> HashMap<usize, DeserializedPacket> {
-        packet_indexes
-            .iter()
-            .filter_map(|packet_index| {
-                let deserialized_packet =
-                    Self::deserialize_packet(&packet_batch.packets[*packet_index])?;
-                Some((*packet_index, deserialized_packet))
-            })
-            .collect()
+// */
+    /// New self, update packet_index which implements the inner relationship between batch <--> packets.
+    pub fn new(
+        index: &mut PacketIndex,
+        packet_batch: PacketBatch,
+        packet_indexes: Vec<usize>,
+        forwarded: bool
+    ) -> Rc<RefCell<Self>> {
+        let batch = Rc::new(RefCell::new(Self::default()));
+        (*batch.borrow_mut()).packets = 
+            packet_indexes
+                .iter()
+                .filter_map(|packet_index| {
+                    let deserialized_packet =
+                        Self::deserialize_packet(&packet_batch.packets[*packet_index])?;
+                    deserialized_packet.index = packet_index;
+                    deserialized_packet.owner = Rc::downgrade(&batch.clone());
+                    let packet = Rc::new(deserialized_packet);
+                    // update index on insertion
+                    index.push(Rc::clone(&packet));
+                    Some((*packet_index, packet))
+                })
+                .collect();
+        (*batch.borrow_mut()).packet_batch = packet_batch;
+        (*batch.borrow_mut()).forwarded = forwarded;
+        batch
     }
 
     fn deserialize_packet(packet: &Packet) -> Option<DeserializedPacket> {
