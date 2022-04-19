@@ -80,6 +80,7 @@ fn insert_packet_batches(
 ){
     solana_logger::setup();
     let mut unprocessed_packet_batches = UnprocessedPacketBatches::with_capacity(buffer_max_size);
+    let mut index = PacketIndex::with_capacity(buffer_max_size * packet_per_batch_count);
 
     let mut timer = Measure::start("insert_batch");
     (0..batch_count).for_each(|_| {
@@ -88,9 +89,11 @@ fn insert_packet_batches(
         } else {
             build_packet_batch(packet_per_batch_count)
         };
+        let batch = DeserializedPacketBatch::new(&mut index, packet_batch, packet_indexes, false);
         unprocessed_packet_batches.insert_batch(
-            DeserializedPacketBatch::new(packet_batch, packet_indexes, false),
-            buffer_max_size
+            &mut index,
+            batch,
+            buffer_max_size,
         );
     });
     timer.stop();
@@ -98,7 +101,8 @@ fn insert_packet_batches(
 }
 
 //*
-// bench: 5,600,038,163 ns/iter (+/- 940,818,988)
+// v1, bench: 5,600,038,163 ns/iter (+/- 940,818,988)
+// v2, bench: 5,265,382,750 ns/iter (+/- 153,623,264)
 #[bench]
 fn bench_unprocessed_packet_batches_within_limit(bencher: &mut Bencher) {
     let buffer_capacity = 1_000;
@@ -110,7 +114,8 @@ fn bench_unprocessed_packet_batches_within_limit(bencher: &mut Bencher) {
     });
 }
 
-// bench: 6,607,014,940 ns/iter (+/- 768,191,361)
+// v1, bench: 6,607,014,940 ns/iter (+/- 768,191,361)
+// v2, bench: 5,692,753,323 ns/iter (+/- 548,959,624)
 #[bench]
 fn bench_unprocessed_packet_batches_beyond_limit(bencher: &mut Bencher) {
     let buffer_capacity = 1_000;
@@ -128,7 +133,8 @@ fn bench_unprocessed_packet_batches_beyond_limit(bencher: &mut Bencher) {
 }
 // */
 
-// bench: 5,843,307,086 ns/iter (+/- 844,249,298)
+// v1, bench: 5,843,307,086 ns/iter (+/- 844,249,298)
+// v2, bench: 5,139,525,951 ns/iter (+/- 48,005,521)
 #[bench]
 fn bench_unprocessed_packet_batches_randomized_within_limit(bencher: &mut Bencher) {
     let buffer_capacity = 1_000;
@@ -136,11 +142,12 @@ fn bench_unprocessed_packet_batches_randomized_within_limit(bencher: &mut Benche
     let packet_per_batch_count = 128;
 
     bencher.iter(|| {
-        insert_packet_batches(buffer_capacity, batch_count, packet_per_batch_count, false);
+        insert_packet_batches(buffer_capacity, batch_count, packet_per_batch_count, true);
     });
 }
 
-// bench: 6,497,623,849 ns/iter (+/- 3,206,382,212)
+// v1, bench: 6,497,623,849 ns/iter (+/- 3,206,382,212)
+// v2, bench: 5,762,071,682 ns/iter (+/- 168,244,418)
 #[bench]
 fn bench_unprocessed_packet_batches_randomized_beyond_limit(bencher: &mut Bencher) {
     let buffer_capacity = 1_000;
@@ -152,7 +159,7 @@ fn bench_unprocessed_packet_batches_randomized_beyond_limit(bencher: &mut Benche
     });
 }
 
-//*
+/*
 // bench:     125,923 ns/iter (+/- 12,539)
 #[bench]
 fn bench_unprocessed_packet_batches_vector(bencher: &mut Bencher) {
