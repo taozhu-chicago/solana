@@ -58,6 +58,9 @@ use {
         collect_token_balances, TransactionTokenBalancesSet,
     },
     std::{
+        cell::RefCell,
+        rc::{Rc, Weak},
+
         cmp,
         collections::HashMap,
         env,
@@ -467,9 +470,12 @@ impl BankingStage {
     }
 
     fn filter_valid_packets_for_forwarding<'a>(
-        packet_batches: impl Iterator<Item = &'a DeserializedPacketBatch>,
+        packet_batches: impl Iterator<Item = &'a Rc<RefCell<DeserializedPacketBatch>>>,
     ) -> Vec<&'a Packet> {
+        vec![]
+        /* TODO - re-impl
         packet_batches
+            .map(|deserialized_packet_batch| deserialized_packet_batch.borrow() )
             .filter(|deserialized_packet_batch| !deserialized_packet_batch.forwarded)
             .flat_map(|deserialized_packet_batch| {
                 deserialized_packet_batch
@@ -478,6 +484,7 @@ impl BankingStage {
                     .map(|(index, _)| &deserialized_packet_batch.packet_batch.packets[*index])
             })
             .collect()
+        // */
     }
 
     /// Forwards all valid, unprocessed packets in the buffer, up to a rate limit. Returns
@@ -941,10 +948,10 @@ impl BankingStage {
 
         if hold {
             buffered_packet_batches.retain(|deserialized_packet_batch| {
-                !deserialized_packet_batch.unprocessed_packets.is_empty()
+                !deserialized_packet_batch.borrow().unprocessed_packets.is_empty()
             });
             for deserialized_packet_batch in buffered_packet_batches.iter_mut() {
-                deserialized_packet_batch.forwarded = true;
+                deserialized_packet_batch.borrow_mut().forwarded = true;
             }
         } else {
             slot_metrics_tracker
@@ -2008,7 +2015,7 @@ impl BankingStage {
             buffered_packet_batches
                 .iter()
                 .map(|deserialized_packet_batch| {
-                    deserialized_packet_batch.unprocessed_packets.len()
+                    deserialized_packet_batch.borrow().unprocessed_packets.len()
                 })
                 .sum(),
             Ordering::Relaxed,
