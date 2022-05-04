@@ -16,13 +16,18 @@ use {
     solana_measure::measure::Measure,
     solana_perf::packet::{to_packet_batches, PacketBatch},
     solana_poh::poh_recorder::{create_test_recorder, PohRecorder, WorkingBankEntry},
+    solana_program_runtime::compute_budget,
     solana_runtime::{
         accounts_background_service::AbsRequestSender, bank::Bank, bank_forks::BankForks,
         cost_model::CostModel,
     },
     solana_sdk::{
+        compute_budget::ComputeBudgetInstruction,
         hash::Hash,
-        signature::{Keypair, Signature},
+        message::Message,
+        pubkey::Pubkey,
+        signature::{Keypair, Signature, Signer},
+        system_instruction,
         system_transaction,
         timing::{duration_as_us, timestamp},
         transaction::Transaction,
@@ -34,6 +39,10 @@ use {
         time::{Duration, Instant},
     },
 };
+
+fn print_tx(tx : & VersionedTransaction) {
+    info!("recv entry: {:?}", tx);
+}
 
 fn check_txs(
     receiver: &Arc<Receiver<WorkingBankEntry>>,
@@ -47,6 +56,7 @@ fn check_txs(
         if let Ok((_bank, (entry, _tick_height))) = receiver.recv_timeout(Duration::from_millis(10))
         {
             total += entry.transactions.len();
+            entry.transactions.iter().for_each(|tx| print_tx(tx););
         }
         if total >= ref_tx_count {
             break;
@@ -90,6 +100,27 @@ impl std::str::FromStr for WriteLockContention {
     }
 }
 
+/// Create and sign new system_instruction::Transfer transaction with additional fee
+pub fn make_transfer_tx(
+    from_keypair: &Keypair,
+    to: &Pubkey,
+    lamports: u64,
+    recent_blockhash: Hash,
+    additional_fee: Option<u32>,
+) -> Transaction {
+    let from_pubkey = from_keypair.pubkey();
+    let mut ixs = vec![system_instruction::transfer(&from_pubkey, to, lamports)];
+    if let Some(additional_fee) = additional_fee {
+        ixs.push(ComputeBudgetInstruction::request_units(
+                    compute_budget::DEFAULT_UNITS,
+                    additional_fee,
+                )
+        );
+    }
+    let message = Message::new(&ixs, Some(&from_pubkey));
+    Transaction::new(&[from_keypair], message, recent_blockhash)
+}
+
 fn make_accounts_txs(
     total_num_transactions: usize,
     packets_per_batch: usize,
@@ -98,11 +129,14 @@ fn make_accounts_txs(
 ) -> Vec<Transaction> {
     use solana_sdk::pubkey;
     let to_pubkey = pubkey::new_rand();
-    let chunk_pubkeys: Vec<pubkey::Pubkey> = (0..total_num_transactions / packets_per_batch)
+    // Note - prepares write-to keys, one per each batch
+    let chunk_pubkeys: Vec<Pubkey> = (0..total_num_transactions / packets_per_batch)
         .map(|_| pubkey::new_rand())
         .collect();
     let payer_key = Keypair::new();
-    let dummy = system_transaction::transfer(&payer_key, &to_pubkey, 1, hash);
+    let additional_fee = Some(3);
+    let dummy = make_transfer_tx(&payer_key, &to_pubkey, 1, hash, additional_fee);
+    info!("made dummy: {:?}", dummy);
     (0..total_num_transactions)
         .into_par_iter()
         .map(|i| {
@@ -378,7 +412,7 @@ fn main() {
 
             for tx in &packets_for_this_iteration.transactions {
                 loop {
-                    if bank.get_signature_status(&tx.signatures[0]).is_some() {
+                    if bank.has_signature(&tx.signatures[0]) {
                         break;
                     }
                     if poh_recorder.lock().unwrap().bank().is_none() {

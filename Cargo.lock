@@ -4292,6 +4292,7 @@ dependencies = [
  "solana-measure",
  "solana-perf",
  "solana-poh",
+ "solana-program-runtime",
  "solana-runtime",
  "solana-sdk 1.11.0",
  "solana-streamer",
