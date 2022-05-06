@@ -24,13 +24,12 @@ use {
     solana_sdk::{
         compute_budget::ComputeBudgetInstruction,
         hash::Hash,
-        message::Message,
+        message::{Message, SanitizedVersionedMessage},
         pubkey::Pubkey,
         signature::{Keypair, Signature, Signer},
-        system_instruction,
-        system_transaction,
+        system_instruction, system_transaction,
         timing::{duration_as_us, timestamp},
-        transaction::Transaction,
+        transaction::{Transaction, VersionedTransaction},
     },
     solana_streamer::socket::SocketAddrSpace,
     std::{
@@ -40,8 +39,23 @@ use {
     },
 };
 
-fn print_tx(tx : & VersionedTransaction) {
-    info!("recv entry: {:?}", tx);
+// TODO TAO - how this versioned_message converted into wrapper class tha tsupports tx.message.program_instructions_iter
+fn print_tx(
+    prefix: &str,
+    tx: &VersionedTransaction
+) {
+    let sanitized_versioned_message = SanitizedVersionedMessage::try_from(&tx.message)
+        .expect("versioned transaction is sanitized with static program ids");
+    let mut compute_budget = compute_budget::ComputeBudget::default();
+    let additional_fee = compute_budget.process_instructions(
+        sanitized_versioned_message.program_instructions_iter(),
+        false,
+        true,
+    );
+    info!(
+        "{:?}, {:?}, additional_fee {:?}",
+        prefix, tx.signatures[0], additional_fee
+    );
 }
 
 fn check_txs(
@@ -56,7 +70,8 @@ fn check_txs(
         if let Ok((_bank, (entry, _tick_height))) = receiver.recv_timeout(Duration::from_millis(10))
         {
             total += entry.transactions.len();
-            entry.transactions.iter().for_each(|tx| print_tx(tx););
+            // TODO TAO - change printing to assert ?
+            entry.transactions.iter().for_each(|tx| print_tx("received tx", tx));
         }
         if total >= ref_tx_count {
             break;
@@ -108,14 +123,14 @@ pub fn make_transfer_tx(
     recent_blockhash: Hash,
     additional_fee: Option<u32>,
 ) -> Transaction {
+    info!("making transfer_tx with additional_fee {:?}", additional_fee);
     let from_pubkey = from_keypair.pubkey();
     let mut ixs = vec![system_instruction::transfer(&from_pubkey, to, lamports)];
     if let Some(additional_fee) = additional_fee {
         ixs.push(ComputeBudgetInstruction::request_units(
-                    compute_budget::DEFAULT_UNITS,
-                    additional_fee,
-                )
-        );
+            compute_budget::DEFAULT_UNITS,
+            additional_fee,
+        ));
     }
     let message = Message::new(&ixs, Some(&from_pubkey));
     Transaction::new(&[from_keypair], message, recent_blockhash)
@@ -134,13 +149,18 @@ fn make_accounts_txs(
         .map(|_| pubkey::new_rand())
         .collect();
     let payer_key = Keypair::new();
-    let additional_fee = Some(3);
-    let dummy = make_transfer_tx(&payer_key, &to_pubkey, 1, hash, additional_fee);
-    info!("made dummy: {:?}", dummy);
+    // TODO TAO - prepares transfer transactions per batch, each has diffrent additional_fee
+    let dummies_per_batch: Vec<Transaction> = (0..packets_per_batch)
+        .map(|i| make_transfer_tx(&payer_key, &to_pubkey, 1, hash, Some(i as u32)))
+        .collect();
     (0..total_num_transactions)
+        /* TODO TAO - temprorily disable par_iter
         .into_par_iter()
+        // */
+        .into_iter()
         .map(|i| {
-            let mut new = dummy.clone();
+            info!("{}, picking dummy #{}", i, i % packets_per_batch);
+            let mut new = dummies_per_batch[i % packets_per_batch].clone();
             let sig: Vec<u8> = (0..64).map(|_| thread_rng().gen::<u8>()).collect();
             new.message.account_keys[0] = pubkey::new_rand();
             new.message.account_keys[1] = match contention {
@@ -149,6 +169,7 @@ fn make_accounts_txs(
                 WriteLockContention::Full => to_pubkey,
             };
             new.signatures = vec![Signature::new(&sig[0..64])];
+            print_tx("prepared tx", &VersionedTransaction::try_from(new.clone()).unwrap());
             new
         })
         .collect()
