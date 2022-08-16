@@ -154,7 +154,7 @@ impl PrioritizationFeeEntry {
     }
 }
 
-enum FinalizingSerivceUpdate {
+enum FinalizingServiceUpdate {
     BankFrozen {
         slot: Slot,
         prioritization_fee: Arc<Mutex<PrioritizationFee>>,
@@ -170,7 +170,7 @@ pub struct PrioritizationFeeCache {
     current_sequence_number: AtomicU64,
     // Asynchronously finalize prioritization fee when a bank is completed replay.
     finalizing_thread: Option<JoinHandle<()>>,
-    sender: Sender<FinalizingSerivceUpdate>,
+    sender: Sender<FinalizingServiceUpdate>,
     metrics: Arc<PrioritizationFeeCacheMetrics>,
 }
 
@@ -182,7 +182,7 @@ impl Default for PrioritizationFeeCache {
 
 impl Drop for PrioritizationFeeCache {
     fn drop(&mut self) {
-        let _ = self.sender.send(FinalizingSerivceUpdate::Exit);
+        let _ = self.sender.send(FinalizingServiceUpdate::Exit);
         self.finalizing_thread
             .take()
             .unwrap()
@@ -299,7 +299,7 @@ impl PrioritizationFeeCache {
 
         let prioritization_fee = self.get_prioritization_fee(&slot).entry();
         self.sender
-            .send(FinalizingSerivceUpdate::BankFrozen {
+            .send(FinalizingServiceUpdate::BankFrozen {
                 slot,
                 prioritization_fee,
             })
@@ -332,12 +332,12 @@ impl PrioritizationFeeCache {
     }
 
     fn finalizing_loop(
-        receiver: Receiver<FinalizingSerivceUpdate>,
+        receiver: Receiver<FinalizingServiceUpdate>,
         metrics: Arc<PrioritizationFeeCacheMetrics>,
     ) {
         for update in receiver.iter() {
             match update {
-                FinalizingSerivceUpdate::BankFrozen {
+                FinalizingServiceUpdate::BankFrozen {
                     slot,
                     prioritization_fee,
                 } => {
@@ -351,7 +351,7 @@ impl PrioritizationFeeCache {
                     }
                     metrics.report(slot);
                 }
-                FinalizingSerivceUpdate::Exit => {
+                FinalizingServiceUpdate::Exit => {
                     break;
                 }
             }
