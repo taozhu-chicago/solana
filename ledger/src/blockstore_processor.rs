@@ -410,14 +410,13 @@ fn execute_batches(
     // These two values are later used for checking if the tx_costs vector needs to be iterated over.
     // The collection is a pair of (full cost, cost without estimated-bpf-code-costs).
     #[allow(clippy::needless_collect)]
-//* TAO TODO - option 1
-//  move and return tx_cost.writable_accounts out -- since it already collecting, move into an Arc;
-//  then foo(bank.slot(), tx.priority_fee, Arc<writable_account>) that can be sent to fee-cache
-//  thread.
-// */
     let tx_costs = sanitized_txs
         .iter()
         .map(|tx| {
+            //* TAO TODO - cost_model.calculate_cost(tx) can be expensive mainly due to collect
+            // writable accounts for each transactions. Can improve perf by avoiding getting
+            // writable accounts again here.
+            // */
             let tx_cost = cost_model.calculate_cost(tx);
             let cost = tx_cost.sum();
             let cost_without_bpf = tx_cost.sum_without_bpf();
@@ -605,16 +604,21 @@ fn process_entries_with_callback(
                     (starting_index..starting_index.saturating_add(transactions.len())).collect()
                 };
 
-                // TAO TODO - get transaction accoutn locks is expensive, can resue it 
-                let tx_account_locks_results: Arc<Vec<Result<_>>> = Arc::new(transactions
+                //* TAO TODO - transaction.get_account_locks() call was measured to ~250ns/call.
+                // It can be expensive if called multiple times for same transactions. (which is
+                // the case currently: it is called when lock accounts, when update fee-cache,
+                // when evaluate transaction cost at execute_batch, maybe other places). Doing it
+                // once per transaction and share, at least in this replay path, would help perf.
+                // */
+                let tx_account_locks_results: Vec<Result<_>> = transactions
                     .iter()
                     .map(|tx| tx.get_account_locks(bank.get_transaction_account_lock_limit()))
-                    .collect()
-                );
+                    .collect();
 
                 loop {
                     // try to lock the accounts
-                    let batch = bank.prepare_sanitized_batch_2(transactions, &tx_account_locks_results);
+                    let batch =
+                        bank.prepare_sanitized_batch_2(transactions, &tx_account_locks_results);
                     let first_lock_err = first_err(batch.lock_results());
 
                     // if locking worked
@@ -623,15 +627,21 @@ fn process_entries_with_callback(
                             batch,
                             transaction_indexes,
                         });
-                        //* TAO TODO - 
-                        // this entry will be processed, collect prioritization fees from it
-                        let tx_prioritization_fees: Arc<Vec<Option<_>>> = Arc::new(transactions
+                        //* TAO TODO - this entry is scheduled to be processed, now can update
+                        // fee cache asynchronously by sending transaction's min fee and writable
+                        // accounts to secondary thread via channel. Potential cache lock
+                        // contention between this thread and RPC queries will be in fee cache's
+                        // second thread.
+                        // */
+                        let tx_priority_details: Vec<Option<_>> = transactions
                             .iter()
                             .map(|tx| tx.get_transaction_priority_details())
-                            .collect()
+                            .collect();
+                        prioritization_fee_cache.update(
+                            bank.slot(),
+                            &tx_priority_details,
+                            &tx_account_locks_results,
                         );
-                        prioritization_fee_cache.update_transactions_2(bank.slot(), tx_prioritization_fees.clone(), tx_account_locks_results.clone());
-                        // */
                         // done with this entry
                         break;
                     }

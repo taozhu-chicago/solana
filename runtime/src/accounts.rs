@@ -1081,6 +1081,9 @@ impl Accounts {
         Ok(())
     }
 
+    //* TAO TODO - need a new version that does not consume the original
+    // writable_keys/readonly_keys
+    // */
     fn lock_account_2<'a>(
         &self,
         account_locks: &mut AccountLocks,
@@ -1177,7 +1180,10 @@ impl Accounts {
         self.lock_accounts_inner(tx_account_locks_results)
     }
 
-    pub fn lock_accounts_2<'a>(
+    //* TAO TODO - need a version of lock_accounts that take shared tx_account_locks_results as
+    // input instead of producing one from txs locally.
+    // */
+    pub fn lock_accounts_2(
         &self,
         tx_account_locks_results: &[Result<TransactionAccountLocks>],
     ) -> Vec<Result<()>> {
@@ -1185,8 +1191,7 @@ impl Accounts {
         tx_account_locks_results
             .iter()
             .map(|tx_account_locks_result| match tx_account_locks_result {
-                Ok(tx_account_locks) => 
-                self.lock_account_2(
+                Ok(tx_account_locks) => self.lock_account_2(
                     account_locks,
                     &tx_account_locks.writable,
                     &tx_account_locks.readonly,
