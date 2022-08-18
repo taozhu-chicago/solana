@@ -1081,6 +1081,38 @@ impl Accounts {
         Ok(())
     }
 
+    fn lock_account_2<'a>(
+        &self,
+        account_locks: &mut AccountLocks,
+        writable_keys: &[&'a Pubkey],
+        readonly_keys: &[&'a Pubkey],
+    ) -> Result<()> {
+        for k in writable_keys.iter() {
+            if account_locks.is_locked_write(*k) || account_locks.is_locked_readonly(*k) {
+                debug!("Writable account in use: {:?}", k);
+                return Err(TransactionError::AccountInUse);
+            }
+        }
+        for k in readonly_keys.iter() {
+            if account_locks.is_locked_write(*k) {
+                debug!("Read-only account in use: {:?}", k);
+                return Err(TransactionError::AccountInUse);
+            }
+        }
+
+        for k in writable_keys.iter() {
+            account_locks.write_locks.insert(**k);
+        }
+
+        for k in readonly_keys.iter() {
+            if !account_locks.lock_readonly(*k) {
+                account_locks.insert_new_readonly(*k);
+            }
+        }
+
+        Ok(())
+    }
+
     fn unlock_account(
         &self,
         account_locks: &mut AccountLocks,
@@ -1143,6 +1175,25 @@ impl Accounts {
             })
             .collect();
         self.lock_accounts_inner(tx_account_locks_results)
+    }
+
+    pub fn lock_accounts_2<'a>(
+        &self,
+        tx_account_locks_results: &[Result<TransactionAccountLocks>],
+    ) -> Vec<Result<()>> {
+        let account_locks = &mut self.account_locks.lock().unwrap();
+        tx_account_locks_results
+            .iter()
+            .map(|tx_account_locks_result| match tx_account_locks_result {
+                Ok(tx_account_locks) => 
+                self.lock_account_2(
+                    account_locks,
+                    &tx_account_locks.writable,
+                    &tx_account_locks.readonly,
+                ),
+                Err(err) => Err(err.clone()),
+            })
+            .collect()
     }
 
     #[must_use]

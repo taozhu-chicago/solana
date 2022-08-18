@@ -1,10 +1,10 @@
 use {
-    crate::prioritization_fee::*,
+    crate::{prioritization_fee::*,transaction_priority_details::TransactionPriorityDetails,},
     crossbeam_channel::{unbounded, Receiver, Sender},
     log::*,
     solana_measure::measure,
     solana_sdk::{
-        clock::Slot, pubkey::Pubkey, saturating_add_assign, transaction::SanitizedTransaction,
+        clock::Slot, pubkey::Pubkey, saturating_add_assign, transaction::{Result, SanitizedTransaction, TransactionAccountLocks, },
     },
     std::{
         collections::HashMap,
@@ -231,6 +231,16 @@ impl PrioritizationFeeCache {
             }
         }
     }
+
+    //* TAO TODO 
+    pub fn update_transactions_2(
+        &self,
+        slot: Slot,
+        tx_prioritization_fees: Arc<Vec<Option<TransactionPriorityDetails>>>,
+        tx_account_locks_results:Arc<Vec<Result<TransactionAccountLocks>>>,
+    ) {
+    }
+    // */
 
     /// Update block's minimum prioritization fee with `txs`,
     /// Returns updated minimum prioritization fee for `slot`

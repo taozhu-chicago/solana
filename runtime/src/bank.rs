@@ -140,7 +140,7 @@ use {
         sysvar::{self, Sysvar, SysvarId},
         timing::years_as_slots,
         transaction::{
-            MessageHash, Result, SanitizedTransaction, Transaction, TransactionError,
+            MessageHash, Result, SanitizedTransaction, Transaction, TransactionAccountLocks, TransactionError,
             TransactionVerificationMode, VersionedTransaction, MAX_TX_ACCOUNT_LOCKS,
         },
         transaction_context::{
@@ -3921,6 +3921,22 @@ impl Bank {
             .rc
             .accounts
             .lock_accounts(txs.iter(), tx_account_lock_limit);
+        TransactionBatch::new(lock_results, self, Cow::Borrowed(txs))
+    }
+
+    /// Prepare a locked transaction batch from a list of sanitized transactions.
+    pub fn prepare_sanitized_batch_2<'a, 'b>(
+        &'a self,
+        txs: &'b [SanitizedTransaction],
+        tx_account_locks: &[Result<TransactionAccountLocks>],
+    ) -> TransactionBatch<'a, 'b> {
+        //* TAO TODO - solving borrowing tx_account_locks issue
+        let lock_results = self
+            .rc
+            .accounts
+            .lock_accounts_2(tx_account_locks);
+        // */
+        //let lock_results = vec!(Ok(()); txs.len());
         TransactionBatch::new(lock_results, self, Cow::Borrowed(txs))
     }
 

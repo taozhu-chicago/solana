@@ -34,6 +34,7 @@ use {
         prioritization_fee_cache::PrioritizationFeeCache,
         runtime_config::RuntimeConfig,
         transaction_batch::TransactionBatch,
+        transaction_priority_details::GetTransactionPriorityDetails,
         vote_account::VoteAccountsHashMap,
         vote_sender_types::ReplayVoteSender,
     },
@@ -409,6 +410,11 @@ fn execute_batches(
     // These two values are later used for checking if the tx_costs vector needs to be iterated over.
     // The collection is a pair of (full cost, cost without estimated-bpf-code-costs).
     #[allow(clippy::needless_collect)]
+//* TAO TODO - option 1
+//  move and return tx_cost.writable_accounts out -- since it already collecting, move into an Arc;
+//  then foo(bank.slot(), tx.priority_fee, Arc<writable_account>) that can be sent to fee-cache
+//  thread.
+// */
     let tx_costs = sanitized_txs
         .iter()
         .map(|tx| {
@@ -586,8 +592,6 @@ fn process_entries_with_callback(
                 }
             }
             EntryType::Transactions(transactions) => {
-                prioritization_fee_cache.update_transactions(bank.slot(), transactions.iter());
-
                 let starting_index = *starting_index;
                 let transaction_indexes = if randomize {
                     let mut transactions_and_indexes: Vec<(SanitizedTransaction, usize)> =
@@ -601,9 +605,16 @@ fn process_entries_with_callback(
                     (starting_index..starting_index.saturating_add(transactions.len())).collect()
                 };
 
+                // TAO TODO - get transaction accoutn locks is expensive, can resue it 
+                let tx_account_locks_results: Arc<Vec<Result<_>>> = Arc::new(transactions
+                    .iter()
+                    .map(|tx| tx.get_account_locks(bank.get_transaction_account_lock_limit()))
+                    .collect()
+                );
+
                 loop {
                     // try to lock the accounts
-                    let batch = bank.prepare_sanitized_batch(transactions);
+                    let batch = bank.prepare_sanitized_batch_2(transactions, &tx_account_locks_results);
                     let first_lock_err = first_err(batch.lock_results());
 
                     // if locking worked
@@ -612,6 +623,15 @@ fn process_entries_with_callback(
                             batch,
                             transaction_indexes,
                         });
+                        //* TAO TODO - 
+                        // this entry will be processed, collect prioritization fees from it
+                        let tx_prioritization_fees: Arc<Vec<Option<_>>> = Arc::new(transactions
+                            .iter()
+                            .map(|tx| tx.get_transaction_priority_details())
+                            .collect()
+                        );
+                        prioritization_fee_cache.update_transactions_2(bank.slot(), tx_prioritization_fees.clone(), tx_account_locks_results.clone());
+                        // */
                         // done with this entry
                         break;
                     }
