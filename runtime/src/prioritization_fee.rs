@@ -12,9 +12,7 @@ use {
 
 #[derive(Debug, Default)]
 struct PrioritizationFeeMetrics {
-    // Count of writable accounts in slot; including accounts have minimum prioritization fee equal
-    // to blocker's minimum fee, the number of these irrelevant accounts is the difference between
-    // this counter and `relevant_writable_accounts_count`.
+    // Count of writable accounts in slot
     total_writable_accounts_count: u64,
 
     // Count of writeable accounts with a minimum prioritization fee higher than the minimum transaction
@@ -29,7 +27,7 @@ struct PrioritizationFeeMetrics {
 }
 
 impl PrioritizationFeeMetrics {
-    fn increment_total_prioritization_fee(&mut self, val: u64) {
+    fn accumulate_total_prioritization_fee(&mut self, val: u64) {
         saturating_add_assign!(self.total_prioritization_fee, val);
     }
 
@@ -139,7 +137,7 @@ impl PrioritizationFee {
                 }
 
                 self.metrics
-                    .increment_total_prioritization_fee(priority_details.priority);
+                    .accumulate_total_prioritization_fee(priority_details.priority);
             },
             "update_time",
         );
