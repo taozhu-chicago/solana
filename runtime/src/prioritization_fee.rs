@@ -31,7 +31,7 @@ impl PrioritizationFeeMetrics {
         saturating_add_assign!(self.total_prioritization_fee, val);
     }
 
-    fn increment_total_update_elapsed_us(&mut self, val: u64) {
+    fn accumulate_total_update_elapsed_us(&mut self, val: u64) {
         saturating_add_assign!(self.total_update_elapsed_us, val);
     }
 
@@ -143,7 +143,7 @@ impl PrioritizationFee {
         );
 
         self.metrics
-            .increment_total_update_elapsed_us(update_time.as_us());
+            .accumulate_total_update_elapsed_us(update_time.as_us());
         Ok(())
     }
 

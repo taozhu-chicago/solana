@@ -46,37 +46,37 @@ struct PrioritizationFeeCacheMetrics {
 }
 
 impl PrioritizationFeeCacheMetrics {
-    fn increment_successful_transaction_update_count(&self, val: u64) {
+    fn accumulate_successful_transaction_update_count(&self, val: u64) {
         self.successful_transaction_update_count
             .fetch_add(val, Ordering::Relaxed);
     }
 
-    fn increment_fail_get_transaction_priority_details_count(&self, val: u64) {
+    fn accumulate_fail_get_transaction_priority_details_count(&self, val: u64) {
         self.fail_get_transaction_priority_details_count
             .fetch_add(val, Ordering::Relaxed);
     }
 
-    fn increment_fail_get_transaction_account_locks_count(&self, val: u64) {
+    fn accumulate_fail_get_transaction_account_locks_count(&self, val: u64) {
         self.fail_get_transaction_account_locks_count
             .fetch_add(val, Ordering::Relaxed);
     }
 
-    fn increment_total_update_elapsed_us(&self, val: u64) {
+    fn accumulate_total_update_elapsed_us(&self, val: u64) {
         self.total_update_elapsed_us
             .fetch_add(val, Ordering::Relaxed);
     }
 
-    fn increment_total_cache_lock_elapsed_us(&self, val: u64) {
+    fn accumulate_total_cache_lock_elapsed_us(&self, val: u64) {
         self.total_cache_lock_elapsed_us
             .fetch_add(val, Ordering::Relaxed);
     }
 
-    fn increment_total_entry_lock_elapsed_us(&self, val: u64) {
+    fn accumulate_total_entry_lock_elapsed_us(&self, val: u64) {
         self.total_entry_lock_elapsed_us
             .fetch_add(val, Ordering::Relaxed);
     }
 
-    fn increment_total_evict_old_blocks_elapsed_us(&self, val: u64) {
+    fn accumulate_total_evict_old_blocks_elapsed_us(&self, val: u64) {
         self.total_evict_old_blocks_elapsed_us
             .fetch_add(val, Ordering::Relaxed);
     }
@@ -275,21 +275,21 @@ impl PrioritizationFeeCache {
         );
 
         self.metrics
-            .increment_successful_transaction_update_count(successful_transaction_update_count);
+            .accumulate_successful_transaction_update_count(successful_transaction_update_count);
         self.metrics
-            .increment_fail_get_transaction_priority_details_count(
+            .accumulate_fail_get_transaction_priority_details_count(
                 fail_get_transaction_priority_details_count,
             );
         self.metrics
-            .increment_fail_get_transaction_account_locks_count(
+            .accumulate_fail_get_transaction_account_locks_count(
                 fail_get_transaction_account_locks_count,
             );
         self.metrics
-            .increment_total_cache_lock_elapsed_us(cache_lock_time.as_us());
+            .accumulate_total_cache_lock_elapsed_us(cache_lock_time.as_us());
         self.metrics
-            .increment_total_entry_lock_elapsed_us(entry_lock_time.as_us());
+            .accumulate_total_entry_lock_elapsed_us(entry_lock_time.as_us());
         self.metrics
-            .increment_total_update_elapsed_us(cache_update_time.as_us());
+            .accumulate_total_update_elapsed_us(cache_update_time.as_us());
     }
 
     /// Finalize prioritization fee when it's bank is completely replayed from blockstore,
@@ -328,7 +328,7 @@ impl PrioritizationFeeCache {
         );
 
         self.metrics
-            .increment_total_evict_old_blocks_elapsed_us(evict_old_blocks_time.as_us());
+            .accumulate_total_evict_old_blocks_elapsed_us(evict_old_blocks_time.as_us());
     }
 
     fn finalizing_loop(
