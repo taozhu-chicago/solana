@@ -594,6 +594,10 @@ pub mod disable_builtin_loader_ownership_chains {
     solana_sdk::declare_id!("4UDcAfQ6EcA6bdcadkeHpkarkhZGJ7Bpq7wTAiRMjkoi");
 }
 
+pub mod apply_cost_tracker_during_replay {
+    solana_sdk::declare_id!("2ry7ygxiYURULZCrypHhveanvP5tzZ4toRwVp89oCNSj");
+}
+
 lazy_static! {
     /// Map of feature identifiers to user-visible description
     pub static ref FEATURE_NAMES: HashMap<Pubkey, &'static str> = [
@@ -737,6 +741,7 @@ lazy_static! {
         (update_hashes_per_tick::id(), "Update desired hashes per tick on epoch boundary"),
         (enable_big_mod_exp_syscall::id(), "add big_mod_exp syscall #28503"),
         (disable_builtin_loader_ownership_chains::id(), "disable builtin loader ownership chains #29956"),
+        (apply_cost_tracker_during_replay::id(), "apply cost tracker to blocks during replay #29595"),
         /*************** ADD NEW FEATURES HERE ***************/
     ]
     .iter()
