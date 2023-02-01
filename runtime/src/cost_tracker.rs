@@ -77,6 +77,12 @@ impl CostTracker {
         }
     }
 
+    // TAO TODO - to print simple version of cost tracker
+    pub fn print(&self) -> String {
+        format!("block_cost {} vote_cost {} transaction_count {} account_data_size {}",
+                 self.block_cost, self.vote_cost, self.transaction_count, self.account_data_size)
+    }
+
     /// allows to adjust limits initiated during construction
     pub fn set_limits(
         &mut self,

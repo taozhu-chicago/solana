@@ -80,6 +80,19 @@ impl TransactionCost {
             .saturating_add(self.builtins_execution_cost)
             .saturating_add(self.bpf_execution_cost)
     }
+
+    // TAO TODO - to print simple version of cost tracker
+    pub fn print(&self) -> String {
+        format!("signature_cost {} write_lock_cost {} data_bytes_cost {} builtins_execution_cost {} bpf_execution_cost {} account_data_size {} is_simple_vote {}",
+    self.signature_cost,
+    self.write_lock_cost,
+    self.data_bytes_cost,
+    self.builtins_execution_cost,
+    self.bpf_execution_cost,
+    self.account_data_size,
+    self.is_simple_vote,
+                 )
+    }
 }
 
 pub struct CostModel;
