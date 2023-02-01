@@ -326,6 +326,8 @@ fn execute_batches(
         })
         .unzip();
 
+    println!("==TAO== bank {} cost_tracker {}", bank.slot(), bank.read_cost_tracker().unwrap().print());
+
     let mut minimal_tx_cost = u64::MAX;
     let mut total_cost: u64 = 0;
     // Allowing collect here, since it also computes the minimal tx cost, and aggregate cost.
@@ -342,17 +344,43 @@ fn execute_batches(
         })
         .collect::<Vec<_>>();
 
-    if bank
-        .feature_set
-        .is_active(&feature_set::apply_cost_tracker_during_replay::id())
-    {
+//    if bank
+//        .feature_set
+//        .is_active(&feature_set::apply_cost_tracker_during_replay::id())
+//    {
         let mut cost_tracker = bank.write_cost_tracker().unwrap();
+//        for tx_cost in &tx_costs {
+//            cost_tracker
+//                .try_add(tx_cost)
+//                .map_err(TransactionError::from)?;
         for tx_cost in &tx_costs {
-            cost_tracker
-                .try_add(tx_cost)
-                .map_err(TransactionError::from)?;
+            match cost_tracker.try_add(tx_cost) {
+                Ok(block_cost) => {
+                    println!("==TAO== bank {} tx_cost {} updated_block_cost {}", bank.slot(), tx_cost.print(), block_cost);
+                }
+                Err(e) => {
+                    println!("==TAO== bank {} tx_cost {} fail_to_add {:?}", bank.slot(), tx_cost.print(), e);
+                    match e {
+                        CostTrackerError::WouldExceedBlockMaxLimit => {
+                            return Err(TransactionError::WouldExceedMaxBlockCostLimit);
+                        }
+                        CostTrackerError::WouldExceedVoteMaxLimit => {
+                            return Err(TransactionError::WouldExceedMaxVoteCostLimit);
+                        }
+                        CostTrackerError::WouldExceedAccountMaxLimit => {
+                            return Err(TransactionError::WouldExceedMaxAccountCostLimit);
+                        }
+                        CostTrackerError::WouldExceedAccountDataBlockLimit => {
+                            return Err(TransactionError::WouldExceedAccountDataBlockLimit);
+                        }
+                        CostTrackerError::WouldExceedAccountDataTotalLimit => {
+                            return Err(TransactionError::WouldExceedAccountDataTotalLimit);
+                        }
+                    }
+                }
+            }
         }
-    }
+//    }
 
     let target_batch_count = get_thread_count() as u64;
 
