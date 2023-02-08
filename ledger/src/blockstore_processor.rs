@@ -349,13 +349,14 @@ fn execute_batches(
     if bank.feature_set.is_active(&feature_set::apply_cost_tracker_during_replay::id()) {
     // */
         let mut cost_tracker = bank.write_cost_tracker().unwrap();
-        for tx_cost in &tx_costs {
+        for (tx_cost, tx) in tx_costs.iter().zip(sanitized_txs.iter()) {
             match cost_tracker.try_add(tx_cost) {
                 Ok(block_cost) => {
-                    println!("==TAO== bank {} tx_cost {} updated_block_cost {}", bank.slot(), tx_cost.print(), block_cost);
+                    println!("==TAO== bank {} tx {:?} tx_cost {} updated_block_cost {}", bank.slot(), tx.signature(), tx_cost.print(), block_cost);
                 }
                 Err(e) => {
-                    println!("==TAO== bank {} tx_cost {} fail_to_add {:?}", bank.slot(), tx_cost.print(), e);
+                    println!("==TAO== bank {} tx {:?} tx_cost {} fail_to_add {:?}", bank.slot(), tx.signature(), tx_cost.print(), e);
+                    /* TAO let's not to return immediately, see how many more woudl not fit
                     match e {
                         CostTrackerError::WouldExceedBlockMaxLimit => {
                             return Err(TransactionError::WouldExceedMaxBlockCostLimit);
@@ -373,6 +374,7 @@ fn execute_batches(
                             return Err(TransactionError::WouldExceedAccountDataTotalLimit);
                         }
                     }
+                    // */
                 }
             }
         }
