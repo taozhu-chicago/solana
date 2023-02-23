@@ -756,6 +756,10 @@ impl<'a> InvokeContext<'a> {
                 let result = if builtin_id == program_id {
                     let logger = self.get_log_collector();
                     stable_log::program_invoke(&logger, &program_id, self.get_stack_height());
+                    // execute builtins will consume predefined number of CUs, regardless of
+                    // executino result being success or failure
+                    self.consume_checked(100/builtin_cost*/);
+
                     (entry.process_instruction)(first_instruction_account, self)
                         .map(|()| {
                             stable_log::program_success(&logger, &program_id);
