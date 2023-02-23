@@ -866,6 +866,9 @@ impl<'a> InvokeContext<'a> {
         let nesting_level = self
             .transaction_context
             .get_instruction_context_stack_height();
+        
+        println!("==TAO-DEBUG== program_id {:?} nesting_level {:?}", program_id, nesting_level);
+
         let is_top_level_instruction = nesting_level == 0;
         if !is_top_level_instruction {
             // Verify the calling program hasn't misbehaved
@@ -908,6 +911,8 @@ impl<'a> InvokeContext<'a> {
                 *compute_units_consumed = pre_remaining_units.saturating_sub(post_remaining_units);
                 process_executable_chain_time.stop();
 
+                println!("==TAO-DEBUG== process_executable_chain result {:?}, cu {:?} us {:?}", execution_result, compute_units_consumed, process_executable_chain_time.as_us());
+
                 // Verify the called program has not misbehaved
                 let mut verify_callee_time = Measure::start("verify_callee_time");
                 let result = execution_result.and_then(|_| {
@@ -948,6 +953,7 @@ impl<'a> InvokeContext<'a> {
         instruction_data: &[u8],
     ) -> Result<(), InstructionError> {
         let instruction_context = self.transaction_context.get_current_instruction_context()?;
+        let mut process_executable_chain_time = Measure::start("process_executable_chain_time");
 
         let (first_instruction_account, builtin_id) = {
             let borrowed_root_account = instruction_context
@@ -961,13 +967,22 @@ impl<'a> InvokeContext<'a> {
             }
         };
 
+        /* The builtins are: 
+         * self.builtin_programs [11111111111111111111111111111111: 0x5638c6b26180, Vote111111111111111111111111111111111111111: 0x5638c7261370, Stake11111111111111111111111111111111111111: 0x5638c6f2e1f0, Config1111111111111111111111111111111111111: 0x5638c6f61ae0, BPFLoader1111111111111111111111111111111111: 0x5638c6f94ef0, BPFLoader2111111111111111111111111111111111: 0x5638c6f94f20, BPFLoaderUpgradeab1e11111111111111111111111: 0x5638c6f94f20, ComputeBudget111111111111111111111111111111: 0x5638c6ecce00, KeccakSecp256k11111111111111111111111111111: 0x5638c674e500, Ed25519SigVerify111111111111111111111111111: 0x5638c674e500]
+        */
+
         for entry in self.builtin_programs {
+
+            //println!("==TAO-DEBUG== entry.program_id {:?} builtin_id {:?}", entry.program_id, builtin_id);
+
             if entry.program_id == builtin_id {
                 let program_id = instruction_context.get_program_id(self.transaction_context);
-                if builtin_id == program_id {
+
+                let pre_remaining_units = self.compute_meter.borrow().get_remaining();
+                let result = if builtin_id == program_id {
                     let logger = self.get_log_collector();
                     stable_log::program_invoke(&logger, &program_id, self.get_stack_height());
-                    return (entry.process_instruction)(
+                    (entry.process_instruction)(
                         first_instruction_account,
                         instruction_data,
                         self,
@@ -978,25 +993,43 @@ impl<'a> InvokeContext<'a> {
                     .map_err(|err| {
                         stable_log::program_failure(&logger, &program_id, &err);
                         err
-                    });
+                    })
                 } else {
-                    return (entry.process_instruction)(
+                    (entry.process_instruction)(
                         first_instruction_account,
                         instruction_data,
                         self,
-                    );
-                }
+                    )
+                };
+
+                process_executable_chain_time.stop();
+                let post_remaining_units = self.compute_meter.borrow().get_remaining();
+                let compute_units_consumed = pre_remaining_units.saturating_sub(post_remaining_units);
+                let micro_sec_spent = process_executable_chain_time.as_us();
+                println!("==TAO== builtin_id {:?} program_id {:?} cu {} us {}", builtin_id, program_id, compute_units_consumed, micro_sec_spent);
+
+                return result;
             }
         }
 
-        if !self.feature_set.is_active(&remove_native_loader::id()) {
+//        if !self.feature_set.is_active(&remove_native_loader::id()) {
             let program_id = instruction_context.get_program_id(self.transaction_context);
+
+            let pre_remaining_units = self.compute_meter.borrow().get_remaining();
             if builtin_id == program_id {
                 let native_loader = NativeLoader::default();
                 // Call the program via the native loader
-                return native_loader.process_instruction(0, instruction_data, self);
+                let result = native_loader.process_instruction(0, instruction_data, self);
+
+                process_executable_chain_time.stop();
+                let post_remaining_units = self.compute_meter.borrow().get_remaining();
+                let compute_units_consumed = pre_remaining_units.saturating_sub(post_remaining_units);
+                let micro_sec_spent = process_executable_chain_time.as_us();
+                println!("==TAO-2== builtin_id {:?} program_id {:?} cu {} us {}", builtin_id, program_id, compute_units_consumed, micro_sec_spent);
+
+                return result;
             }
-        }
+//        }
 
         Err(InstructionError::UnsupportedProgramId)
     }
