@@ -1,5 +1,6 @@
 use {
     crate::prioritization_fee::{PrioritizationFeeDetails, PrioritizationFeeType},
+    lazy_static::lazy_static,
     solana_sdk::{
         borsh::try_from_slice_unchecked,
         compute_budget::{self, ComputeBudgetInstruction},
@@ -8,6 +9,11 @@ use {
         pubkey::Pubkey,
         transaction::TransactionError,
     },
+    solana_sdk::{
+        bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable, ed25519_program,
+        feature, incinerator, native_loader, secp256k1_program, system_program,
+    },
+    std::collections::HashMap,
 };
 
 pub const DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT: u32 = 200_000;
@@ -20,6 +26,33 @@ impl ::solana_frozen_abi::abi_example::AbiExample for ComputeBudget {
         // ComputeBudget is not Serialize so just rely on Default.
         ComputeBudget::default()
     }
+}
+
+// TODO - move from runtime/src/block_cost_limists.rs to here
+// Number of compute units for each built-in programs
+lazy_static! {
+    /// Number of compute units for each built-in programs, measured average
+    /// execution micro-second from average host, converted 30cu/us.
+    pub static ref BUILTIN_COSTS: HashMap<Pubkey, u64> = [
+        (feature::id(), 60),
+        (incinerator::id(), 60),
+        (native_loader::id(), 60),
+        (solana_sdk::stake::config::id(), 60),
+        (solana_sdk::stake::program::id(), 750),
+//        (solana_config_program::id(), 450),
+//        (solana_vote_program::id(), 2100),
+        (secp256k1_program::id(), 720),
+        (ed25519_program::id(), 720),
+        (system_program::id(), 150),
+        (compute_budget::id(), 150),
+//        (solana_address_lookup_table_program::id(), 750),
+        (bpf_loader_upgradeable::id(), 2370),
+        (bpf_loader_deprecated::id(), 1140),
+        (bpf_loader::id(), 570),
+    ]
+    .iter()
+    .cloned()
+    .collect();
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

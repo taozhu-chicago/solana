@@ -6133,6 +6133,7 @@ dependencies = [
  "eager",
  "enum-iterator",
  "itertools",
+ "lazy_static",
  "libc",
  "libloading",
  "log",

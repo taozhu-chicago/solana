@@ -1,7 +1,7 @@
 use {
     crate::{
         accounts_data_meter::AccountsDataMeter,
-        compute_budget::ComputeBudget,
+        compute_budget::{BUILTIN_COSTS, ComputeBudget},
         executor_cache::TransactionExecutorCache,
         ic_logger_msg, ic_msg,
         log_collector::LogCollector,
@@ -756,9 +756,15 @@ impl<'a> InvokeContext<'a> {
                 let result = if builtin_id == program_id {
                     let logger = self.get_log_collector();
                     stable_log::program_invoke(&logger, &program_id, self.get_stack_height());
-                    // execute builtins will consume predefined number of CUs, regardless of
-                    // executino result being success or failure
-                    self.consume_checked(100/builtin_cost*/);
+
+                    // TAO TODO 
+                    //if feature {
+                    // executing builtins will consume predefined number of CUs, regardless of
+                    // execution result. Default cost is 0 if the builtin is not predefined to
+                    // be backward compatible with current behavior.
+                    let builtin_units = BUILTIN_COSTS.get(&builtin_id).copied().unwrap_or_default();
+                    self.consume_checked(builtin_units)?;
+                    //}
 
                     (entry.process_instruction)(first_instruction_account, self)
                         .map(|()| {
