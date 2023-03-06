@@ -30,7 +30,7 @@ lazy_static! {
     /// Number of compute units for each built-in programs, measured average
     /// execution micro-second from average host, converted 30cu/us.
     pub static ref BUILTIN_COSTS: HashMap<Pubkey, u64> = [
-//        (solana_address_lookup_table_program::id(), 750),
+        (solana_sdk::address_lookup_table_program::id(), 750),
         (solana_sdk::bpf_loader_upgradeable::id(), 2370),
         (solana_sdk::bpf_loader_deprecated::id(), 1140),
         (solana_sdk::bpf_loader::id(), 570),

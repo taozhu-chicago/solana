@@ -276,8 +276,6 @@ pub mod solana_sdk {
 }
 
 pub mod solana_address_lookup_table_program {
-    crate::declare_id!("AddressLookupTab1e1111111111111111111111111");
-
     pub mod state {
         use {
             crate::{instruction::InstructionError, pubkey::Pubkey},
