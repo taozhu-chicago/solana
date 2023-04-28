@@ -4642,6 +4642,9 @@ impl Bank {
                         compute_budget
                     };
 
+                    // print transaction sig before execution
+                    println!("-- execute_loaded_tx {:?}", tx.signature());
+
                     self.execute_loaded_transaction(
                         tx,
                         loaded_transaction,

@@ -753,6 +753,10 @@ impl<'a> InvokeContext<'a> {
                 }
 
                 process_executable_chain_time.stop();
+
+                // print executed ix's CU and time
+                println!("== program_id {:?} cu_consumed {} time_spent {}", program_id, compute_units_consumed, process_executable_chain_time.as_us());
+
                 saturating_add_assign!(
                     timings
                         .execute_accessories
