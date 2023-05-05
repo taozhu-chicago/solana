@@ -23,6 +23,7 @@ use {
     dashmap::DashMap,
     itertools::Itertools,
     log::*,
+    solana_measure::measure_us,
     solana_program_runtime::{
         compute_budget::{self, ComputeBudget},
         loaded_programs::LoadedProgramsForTxBatch,
@@ -539,23 +540,16 @@ impl Accounts {
                         builtins_start_index.saturating_add(owner_index)
                     } else {
                         let owner_index = accounts.len();
-                        if let Some((owner_account, _)) =
+                        if let Some((program_account, _)) =
                             self.accounts_db.load_with_fixed_root(ancestors, owner_id)
                         {
-                            if disable_builtin_loader_ownership_chains
-                                && !native_loader::check_id(owner_account.owner())
-                                || !owner_account.executable()
-                            {
-                                error_counters.invalid_program_for_execution += 1;
-                                return Err(TransactionError::InvalidProgramForExecution);
-                            }
                             Self::accumulate_and_check_loaded_account_data_size(
                                 &mut accumulated_accounts_data_size,
-                                owner_account.data().len(),
+                                program_account.data().len(),
                                 requested_loaded_accounts_data_size_limit,
                                 error_counters,
                             )?;
-                            accounts.push((*owner_id, owner_account));
+                            accounts.push((*owner_id, program_account));
                         } else {
                             error_counters.account_not_found += 1;
                             return Err(TransactionError::ProgramAccountNotFound);
@@ -1311,23 +1305,34 @@ impl Accounts {
         durable_nonce: &DurableNonce,
         lamports_per_signature: u64,
     ) {
-        let (accounts_to_store, transactions) = self.collect_accounts_to_store(
+        let ((accounts_to_store, transactions), collect_accounts_to_store_us) = measure_us!(self.collect_accounts_to_store(
             txs,
             res,
             loaded,
             rent_collector,
             durable_nonce,
             lamports_per_signature,
-        );
-        self.accounts_db
-            .store_cached_inline_update_index((slot, &accounts_to_store[..]), Some(&transactions));
+        ));
+        let tx_cnt = txs.len();
+        let accounts_to_store_cnt = accounts_to_store.len();
+        let store_cached_us = measure_us!(self.accounts_db.store_cached_inline_update_index(
+            (slot, &accounts_to_store[..]),
+            Some(&transactions),
+        )).1;
+        // TAO - this function is called by bank.commit_transactions()
+        println!("== store_cached, slot {} tx_cnt {} accounts_to_store_cnt {} collect_accounts_to_store_us {} store_cached_us {}", slot, tx_cnt, accounts_to_store_cnt, collect_accounts_to_store_us, store_cached_us);
     }
 
     pub fn store_accounts_cached<'a, T: ReadableAccount + Sync + ZeroLamport + 'a>(
         &self,
         accounts: impl StorableAccounts<'a, T>,
     ) {
-        self.accounts_db.store_cached(accounts, None)
+        let accounts_cnt = accounts.len();
+        let (_, store_cached_us) = measure_us!(
+        self.accounts_db.store_cached(accounts, None));
+        // TAO - this is called by bank.store_accounts(accounts), perbably called during bank
+        // frezing to collect rent and store modified accounts back to accounts_db
+        println!("== store_accounts_cached, accounts_cnt {} store_cached_us {}", accounts_cnt, store_cached_us);
     }
 
     /// Add a slot to root.  Root slots cannot be purged
