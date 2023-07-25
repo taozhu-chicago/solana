@@ -13,6 +13,7 @@ use {
         },
         accounts_update_notifier_interface::AccountsUpdateNotifier,
         ancestors::Ancestors,
+        base_fee_printer::{BaseFeePrinter, PricedComputeUnits},
         blockhash_queue::BlockhashQueue,
         nonce_info::{NonceFull, NonceInfo},
         rent_collector::RentCollector,
@@ -319,6 +320,7 @@ impl Accounts {
         reward_interval: RewardInterval,
         program_accounts: &HashMap<Pubkey, (&Pubkey, u64)>,
         loaded_programs: &LoadedProgramsForTxBatch,
+        base_fee_printer: &mut Option<BaseFeePrinter>,
     ) -> Result<LoadedTransaction> {
         let in_reward_interval = reward_interval == RewardInterval::InsideInterval;
 
@@ -424,6 +426,14 @@ impl Accounts {
                             warn!("Payer index should be 0! {:?}", tx);
                         }
 
+                        base_fee_printer.as_mut().map(|bfp| {
+                            bfp.payer_pubkey = *key;
+                            bfp
+                        });
+                        base_fee_printer.as_mut().map(|bfp| {
+                            bfp.payer_pre_balance = account.lamports();
+                            bfp
+                        });
                         Self::validate_fee_payer(
                             key,
                             &mut account,
@@ -433,6 +443,10 @@ impl Accounts {
                             feature_set,
                             fee,
                         )?;
+                        base_fee_printer.as_mut().map(|bfp| {
+                            bfp.payer_post_balance = account.lamports();
+                            bfp
+                        });
 
                         validated_fee_payer = true;
                     }
@@ -731,6 +745,14 @@ impl Accounts {
                         return (Err(TransactionError::BlockhashNotFound), None);
                     };
 
+                    // Only experiment non-vote transactions
+                    let mut base_fee_printer = tx.is_simple_vote_transaction().then_some(BaseFeePrinter {
+                        tx_sig: *tx.signature(),
+                        tx_cost: solana_cost_model::cost_model::CostModel::calculate_cost(tx, feature_set).sum(),
+                        tx_base_fee: fee,
+                        ..BaseFeePrinter::default()
+                    });
+
                     let loaded_transaction = match self.load_transaction_accounts(
                         ancestors,
                         tx,
@@ -742,10 +764,15 @@ impl Accounts {
                         in_reward_interval,
                         program_accounts,
                         loaded_programs,
+                        &mut base_fee_printer,
                     ) {
                         Ok(loaded_transaction) => loaded_transaction,
                         Err(e) => return (Err(e), None),
                     };
+
+                    if let Some(base_fee_printer) = base_fee_printer {
+                        base_fee_printer.print(&PricedComputeUnits::default());
+                    }
 
                     // Update nonce with fee-subtracted accounts
                     let nonce = if let Some(nonce) = nonce {

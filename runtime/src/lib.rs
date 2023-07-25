@@ -27,6 +27,7 @@ pub mod bank_client;
 mod bank_creation_freezing_progress;
 pub mod bank_forks;
 pub mod bank_utils;
+mod base_fee_printer;
 pub mod blockhash_queue;
 pub mod bucket_map_holder;
 pub mod bucket_map_holder_stats;
