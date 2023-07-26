@@ -4,7 +4,9 @@
 //! - add_transaction_cost(&tx_cost), mutable function to accumulate tx_cost to tracker.
 //!
 use {
-    crate::{block_cost_limits::*, transaction_cost::TransactionCost},
+    crate::{
+        block_cost_limits::*, ema::AggregatedVarianceStats, transaction_cost::TransactionCost,
+    },
     solana_metrics::datapoint_info,
     solana_sdk::{
         clock::Slot, pubkey::Pubkey, saturating_add_assign, transaction::TransactionError,
@@ -65,7 +67,7 @@ pub struct CostTracker {
 
     /// (moving) average block_utilization read from previous blocks in percentage (10 means 10%)
     /// this block's tracking stats contribute to next block's average_block_utilization
-    block_utilization: u8,
+    block_utilization: AggregatedVarianceStats,
 }
 
 impl Default for CostTracker {
@@ -86,7 +88,7 @@ impl Default for CostTracker {
             transaction_count: 0,
             account_data_size: 0,
             account_data_size_limit: None,
-            block_utilization: 0,
+            block_utilization: AggregatedVarianceStats::default(),
         }
     }
 }
@@ -103,31 +105,32 @@ impl CostTracker {
 
     pub fn new_with_account_data_size_limit_and_block_utilization(
         account_data_size_limit: Option<u64>,
-        block_utilization: u8) -> Self {
+        block_utilization: &AggregatedVarianceStats,
+    ) -> Self {
         Self {
             account_data_size_limit,
-            block_utilization,
+            block_utilization: block_utilization.clone(),
             ..Self::default()
         }
     }
 
-    pub fn previous_block_utilization(&self) -> u8 {
-        self.block_utilization
+    pub fn get_block_utilization(&self) -> &AggregatedVarianceStats {
+        &self.block_utilization
     }
 
-    /// Wolford's method of calculate moving average
-    pub fn block_utilization(&self) -> u8 {
-        let self_block_utilization = (self.block_cost * 100 / self.block_cost_limit) as u8;
-        // TODO - replace w actual average calc
-        let new_block_utilization = (self.block_utilization + self_block_utilization) / 2;
+    /// ema method of calculate moving average
+    pub fn update_block_utilization(&mut self) {
+        let prev_block_utilization_ema = self.block_utilization.get_ema();
+        let this_block_utilization = self.block_cost * 100 / self.block_cost_limit;
+        self.block_utilization.aggregate(this_block_utilization);
+        let post_block_utilization_ema = self.block_utilization.get_ema();
 
-        println!("=== cost_tracker block_cost {} block_cost_limit {} prev_block_util {} new_block_util {}",
+        println!("=== cost_tracker block_cost {} block_cost_limit {} prev_block_util_ems {} this_block_util {} post_block_util_ema {}",
                  self.block_cost,
                  self.block_cost_limit,
-                 self.block_utilization,
-                 new_block_utilization);
-
-        new_block_utilization
+                 prev_block_utilization_ema,
+                 this_block_utilization,
+                 post_block_utilization_ema);
     }
 
     /// allows to adjust limits initiated during construction

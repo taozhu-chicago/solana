@@ -20,8 +20,8 @@ use solana_sdk::{clock::Slot, pubkey::Pubkey, signature::Signature};
 #[derive(Debug, Default)]
 pub struct PricedComputeUnits {
     pub slot: Slot,
-    pub block_utilization: u8, // Wolford's calculated simple moving average, in percentage number (10 means 10%)
-    pub cu_price: u64,         // the number of lamports per CU
+    pub block_utilization: u64, // exponential moving average, in percentage number (10 means 10%)
+    pub cu_price: u64,          // the number of lamports per CU
 }
 
 impl PricedComputeUnits {}

@@ -1436,7 +1436,7 @@ impl Bank {
                                 .accounts_data_size_limit()
                                 .saturating_sub(accounts_data_size_initial)
                         }),
-                    parent.read_cost_tracker().unwrap().block_utilization(),
+                    parent.read_cost_tracker().unwrap().get_block_utilization(),
                 ),
             ),
             sysvar_cache: RwLock::new(SysvarCache::default()),
@@ -3766,6 +3766,11 @@ impl Bank {
             *hash = self.hash_internal_state();
             self.rc.accounts.accounts_db.mark_slot_frozen(self.slot());
             self.bank_frozen_or_destroyed();
+
+            // aggregate block uitilization
+            self.write_cost_tracker()
+                .unwrap()
+                .update_block_utilization();
         }
     }
 
@@ -5073,7 +5078,8 @@ impl Bank {
                 block_utilization: self
                     .read_cost_tracker()
                     .unwrap()
-                    .previous_block_utilization(),
+                    .get_block_utilization()
+                    .get_ema(),
                 ..PricedComputeUnits::default()
             },
         );
@@ -6712,7 +6718,7 @@ impl Bank {
                         .unwrap()
                         .read_cost_tracker()
                         .unwrap()
-                        .block_utilization(),
+                        .get_block_utilization(),
                 ),
             );
         }
