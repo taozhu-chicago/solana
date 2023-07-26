@@ -9,22 +9,10 @@
 //!           where N could be 16 to start with
 //!    d. add the min/max if necessary
 
-use solana_sdk::{clock::Slot, pubkey::Pubkey, signature::Signature};
-
-// add this to `bank` as member,
-// use Welford's variance algorithm to calculate mean and variance last N blocks utilization when
-//     new bank is created
-// pass this object to accounts::load_accounts()
-// at `accounts` call BaseFeePrinter.print() per tx with info from it
-//
-#[derive(Debug, Default)]
-pub struct PricedComputeUnits {
-    pub slot: Slot,
-    pub block_utilization: u64, // exponential moving average, in percentage number (10 means 10%)
-    pub cu_price: u64,          // the number of lamports per CU
-}
-
-impl PricedComputeUnits {}
+use {
+    solana_cost_model::cost_tracker::ComputeUnitPricer,
+    solana_sdk::{pubkey::Pubkey, signature::Signature},
+};
 
 #[derive(Debug, Default)]
 pub struct BaseFeePrinter {
@@ -41,17 +29,17 @@ pub struct BaseFeePrinter {
 }
 
 impl BaseFeePrinter {
-    pub fn print(&self, priced_compute_units: &PricedComputeUnits) {
+    pub fn print(&self, compute_unit_pricer: &ComputeUnitPricer) {
         println!(
             "BFP: payer {:?} payer_pre_bal {:?} payer_post_bal {:?} slot {:?} tx_sig {:?} tx_cost {:?} block_utilization {:?} cu_price {:?} tx_base_fee {:?}",
             self.payer_pubkey,
             self.payer_pre_balance,
             self.payer_post_balance,
-            priced_compute_units.slot,
+            compute_unit_pricer.slot,
             self.tx_sig,
             self.tx_cost,
-            priced_compute_units.block_utilization,
-            priced_compute_units.cu_price,
+            compute_unit_pricer.block_utilization.get_ema(),
+            compute_unit_pricer.cu_price,
             self.tx_base_fee,
         );
     }

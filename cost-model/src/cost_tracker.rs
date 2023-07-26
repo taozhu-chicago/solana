@@ -50,6 +50,68 @@ impl From<CostTrackerError> for TransactionError {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct ComputeUnitPricer {
+    pub slot: Slot,
+
+    /// moving average block_utilization read from previous blocks in percentage (10 means 10%);
+    /// this block's tracking stats contribute to next block's average block_utilization
+    pub block_utilization: AggregatedVarianceStats,
+
+    /// milli-lamports per CU. The rate dynamically floats based on block_utilization. In general,
+    ///    if block_utilization > 90% full, increase the cu_price by 1.125x
+    ///    if block_utilization < 50% full, decrease the cu_price by 0.875x
+    /// it starts w 1000 milli-lamport/cu
+    pub cu_price: u64, // the number of lamports per CU
+}
+const PRICE_CHANGE_RATE: u64 = 125;
+const PRICE_CHANGE_SCALE: u64 = 1_000;
+
+impl Default for ComputeUnitPricer {
+    fn default() -> Self {
+        Self {
+            slot: 0,
+            block_utilization: AggregatedVarianceStats::default(),
+            cu_price: 1_000,
+        }
+    }
+}
+
+impl ComputeUnitPricer {
+    pub fn update(&mut self, slot: Slot, block_cost: u64, block_cost_limit: u64) {
+        let prev_block_utilization_ema = self.block_utilization.get_ema();
+        let prev_cu_price = self.cu_price;
+        let this_block_utilization = block_cost * 100 / block_cost_limit;
+
+        self.slot = slot; // just for printing and data grouping during analyze
+        self.block_utilization.aggregate(this_block_utilization);
+        let post_block_utilization_ema = self.block_utilization.get_ema();
+
+        if post_block_utilization_ema > 90 {
+            self.cu_price = PRICE_CHANGE_SCALE
+                .saturating_add(PRICE_CHANGE_RATE)
+                .saturating_mul(self.cu_price)
+                .saturating_div(PRICE_CHANGE_SCALE);
+        } else if post_block_utilization_ema < 50 {
+            self.cu_price = PRICE_CHANGE_SCALE
+                .saturating_sub(PRICE_CHANGE_RATE)
+                .saturating_mul(self.cu_price)
+                .saturating_div(PRICE_CHANGE_SCALE);
+        }
+
+        println!("=== slot {} block_cost {} block_cost_limit {} this_block_util {} prev_block_util_ems {} post_block_util_ema {} prev_cu_price {} post_cu_price {}",
+                 self.slot,
+                 block_cost,
+                 block_cost_limit,
+                 this_block_utilization,
+                 prev_block_utilization_ema,
+                 post_block_utilization_ema,
+                 prev_cu_price,
+                 self.cu_price,
+                 );
+    }
+}
+
 #[derive(AbiExample, Debug)]
 pub struct CostTracker {
     account_cost_limit: u64,
@@ -66,8 +128,8 @@ pub struct CostTracker {
     account_data_size_limit: Option<u64>,
 
     /// (moving) average block_utilization read from previous blocks in percentage (10 means 10%)
-    /// this block's tracking stats contribute to next block's average_block_utilization
-    block_utilization: AggregatedVarianceStats,
+    /// this block's tracking stats contribute to next block's average_compute_unit_pricer
+    compute_unit_pricer: ComputeUnitPricer,
 }
 
 impl Default for CostTracker {
@@ -88,7 +150,7 @@ impl Default for CostTracker {
             transaction_count: 0,
             account_data_size: 0,
             account_data_size_limit: None,
-            block_utilization: AggregatedVarianceStats::default(),
+            compute_unit_pricer: ComputeUnitPricer::default(),
         }
     }
 }
@@ -103,34 +165,25 @@ impl CostTracker {
         }
     }
 
-    pub fn new_with_account_data_size_limit_and_block_utilization(
+    pub fn new_with_account_data_size_limit_and_compute_unit_pricer(
         account_data_size_limit: Option<u64>,
-        block_utilization: &AggregatedVarianceStats,
+        compute_unit_pricer: &ComputeUnitPricer,
     ) -> Self {
         Self {
             account_data_size_limit,
-            block_utilization: block_utilization.clone(),
+            compute_unit_pricer: compute_unit_pricer.clone(),
             ..Self::default()
         }
     }
 
-    pub fn get_block_utilization(&self) -> &AggregatedVarianceStats {
-        &self.block_utilization
+    pub fn get_compute_unit_pricer(&self) -> &ComputeUnitPricer {
+        &self.compute_unit_pricer
     }
 
     /// ema method of calculate moving average
-    pub fn update_block_utilization(&mut self) {
-        let prev_block_utilization_ema = self.block_utilization.get_ema();
-        let this_block_utilization = self.block_cost * 100 / self.block_cost_limit;
-        self.block_utilization.aggregate(this_block_utilization);
-        let post_block_utilization_ema = self.block_utilization.get_ema();
-
-        println!("=== cost_tracker block_cost {} block_cost_limit {} prev_block_util_ems {} this_block_util {} post_block_util_ema {}",
-                 self.block_cost,
-                 self.block_cost_limit,
-                 prev_block_utilization_ema,
-                 this_block_utilization,
-                 post_block_utilization_ema);
+    pub fn update_compute_unit_pricer(&mut self, slot: Slot) {
+        self.compute_unit_pricer
+            .update(slot, self.block_cost, self.block_cost_limit);
     }
 
     /// allows to adjust limits initiated during construction

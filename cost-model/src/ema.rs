@@ -6,7 +6,7 @@ const N: i128 = 16;
 // discounts older observations faster.
 // Estimate it to 0.117 by `2/(N+1)` if N=16
 const EMA_SCALE: i128 = 1000;
-const EMA_ALPHA: i128 = 2*EMA_SCALE/(N+1);
+const EMA_ALPHA: i128 = 2 * EMA_SCALE / (N + 1);
 
 // exponential moving average algorithm
 // https://en.wikipedia.org/wiki/Moving_average#Exponentially_weighted_moving_variance_and_standard_deviation

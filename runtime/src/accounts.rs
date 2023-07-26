@@ -13,7 +13,7 @@ use {
         },
         accounts_update_notifier_interface::AccountsUpdateNotifier,
         ancestors::Ancestors,
-        base_fee_printer::{BaseFeePrinter, PricedComputeUnits},
+        base_fee_printer::BaseFeePrinter,
         blockhash_queue::BlockhashQueue,
         nonce_info::{NonceFull, NonceInfo},
         rent_collector::RentCollector,
@@ -26,6 +26,7 @@ use {
     itertools::Itertools,
     log::*,
     solana_address_lookup_table_program::{error::AddressLookupError, state::AddressLookupTable},
+    solana_cost_model::cost_tracker::ComputeUnitPricer,
     solana_program_runtime::{
         compute_budget::{self, ComputeBudget},
         loaded_programs::LoadedProgramsForTxBatch,
@@ -722,7 +723,7 @@ impl Accounts {
         in_reward_interval: RewardInterval,
         program_accounts: &HashMap<Pubkey, (&Pubkey, u64)>,
         loaded_programs: &LoadedProgramsForTxBatch,
-        priced_compute_units: &PricedComputeUnits,
+        compute_unit_pricer: &ComputeUnitPricer,
     ) -> Vec<TransactionLoadResult> {
         txs.iter()
             .zip(lock_results)
@@ -772,7 +773,7 @@ impl Accounts {
                     };
 
                     if let Some(base_fee_printer) = base_fee_printer {
-                        base_fee_printer.print(priced_compute_units);
+                        base_fee_printer.print(compute_unit_pricer);
                     }
 
                     // Update nonce with fee-subtracted accounts

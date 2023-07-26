@@ -55,7 +55,6 @@ use {
         accounts_update_notifier_interface::AccountsUpdateNotifier,
         ancestors::{Ancestors, AncestorsForSerialization},
         bank::metrics::*,
-        base_fee_printer::PricedComputeUnits,
         blockhash_queue::BlockhashQueue,
         builtins::{BuiltinPrototype, BUILTINS},
         epoch_accounts_hash::{self, EpochAccountsHash},
@@ -1027,7 +1026,6 @@ impl Bank {
     }
 
     fn default_with_accounts(accounts: Accounts) -> Self {
-        println!("==== default_with_accounts");
         let mut bank = Self {
             bank_freeze_or_destruction_incremented: AtomicBool::default(),
             incremental_snapshot_persistence: None,
@@ -1309,8 +1307,6 @@ impl Bank {
         reward_calc_tracer: Option<impl RewardCalcTracer>,
         new_bank_options: NewBankOptions,
     ) -> Self {
-        println!("==== new from parent");
-
         let mut time = Measure::start("bank::new_from_parent");
         let NewBankOptions { vote_only_bank } = new_bank_options;
 
@@ -1428,7 +1424,7 @@ impl Bank {
             )),
             freeze_started: AtomicBool::new(false),
             cost_tracker: RwLock::new(
-                CostTracker::new_with_account_data_size_limit_and_block_utilization(
+                CostTracker::new_with_account_data_size_limit_and_compute_unit_pricer(
                     feature_set
                         .is_active(&feature_set::cap_accounts_data_len::id())
                         .then(|| {
@@ -1436,7 +1432,10 @@ impl Bank {
                                 .accounts_data_size_limit()
                                 .saturating_sub(accounts_data_size_initial)
                         }),
-                    parent.read_cost_tracker().unwrap().get_block_utilization(),
+                    parent
+                        .read_cost_tracker()
+                        .unwrap()
+                        .get_compute_unit_pricer(),
                 ),
             ),
             sysvar_cache: RwLock::new(SysvarCache::default()),
@@ -1814,7 +1813,6 @@ impl Bank {
         debug_do_not_add_builtins: bool,
         accounts_data_size_initial: u64,
     ) -> Self {
-        println!("=== new_from_fields");
         let now = Instant::now();
         let ancestors = Ancestors::from(&fields.ancestors);
         // For backward compatibility, we can only serialize and deserialize
@@ -3770,7 +3768,7 @@ impl Bank {
             // aggregate block uitilization
             self.write_cost_tracker()
                 .unwrap()
-                .update_block_utilization();
+                .update_compute_unit_pricer(self.slot);
         }
     }
 
@@ -5073,15 +5071,7 @@ impl Bank {
             self.get_reward_interval(),
             &program_accounts_map,
             &programs_loaded_for_tx_batch.borrow(),
-            &PricedComputeUnits {
-                slot: self.slot,
-                block_utilization: self
-                    .read_cost_tracker()
-                    .unwrap()
-                    .get_block_utilization()
-                    .get_ema(),
-                ..PricedComputeUnits::default()
-            },
+            self.read_cost_tracker().unwrap().get_compute_unit_pricer(),
         );
         load_time.stop();
 
@@ -6705,7 +6695,7 @@ impl Bank {
             .is_active(&feature_set::cap_accounts_data_len::id())
         {
             self.cost_tracker = RwLock::new(
-                CostTracker::new_with_account_data_size_limit_and_block_utilization(
+                CostTracker::new_with_account_data_size_limit_and_compute_unit_pricer(
                     Some(
                         self.accounts_data_size_limit()
                             .saturating_sub(self.accounts_data_size_initial),
@@ -6718,7 +6708,7 @@ impl Bank {
                         .unwrap()
                         .read_cost_tracker()
                         .unwrap()
-                        .get_block_utilization(),
+                        .get_compute_unit_pricer(),
                 ),
             );
         }
