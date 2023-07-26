@@ -747,7 +747,7 @@ impl Accounts {
                     };
 
                     // Only experiment non-vote transactions
-                    let mut base_fee_printer = tx.is_simple_vote_transaction().then_some(BaseFeePrinter {
+                    let mut base_fee_printer = (!tx.is_simple_vote_transaction()).then_some(BaseFeePrinter {
                         tx_sig: *tx.signature(),
                         tx_cost: solana_cost_model::cost_model::CostModel::calculate_cost(tx, feature_set).sum(),
                         tx_base_fee: fee,
