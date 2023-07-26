@@ -19,10 +19,12 @@ use solana_sdk::{clock::Slot, pubkey::Pubkey, signature::Signature};
 //
 #[derive(Debug, Default)]
 pub struct PricedComputeUnits {
-    slot: Slot,
-    block_utilization: f64, // Wolford's calculated simple moving average (or just mean to sart with)
-    cu_price: u64,          // the number of lamports per CU
+    pub slot: Slot,
+    pub block_utilization: u8, // Wolford's calculated simple moving average, in percentage number (10 means 10%)
+    pub cu_price: u64,         // the number of lamports per CU
 }
+
+impl PricedComputeUnits {}
 
 #[derive(Debug, Default)]
 pub struct BaseFeePrinter {

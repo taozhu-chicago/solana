@@ -62,6 +62,10 @@ pub struct CostTracker {
     /// The amount of total account data size remaining.  If `Some`, then do not add transactions
     /// that would cause `account_data_size` to exceed this limit.
     account_data_size_limit: Option<u64>,
+
+    /// (moving) average block_utilization read from previous blocks in percentage (10 means 10%)
+    /// this block's tracking stats contribute to next block's average_block_utilization
+    block_utilization: u8,
 }
 
 impl Default for CostTracker {
@@ -82,6 +86,7 @@ impl Default for CostTracker {
             transaction_count: 0,
             account_data_size: 0,
             account_data_size_limit: None,
+            block_utilization: 0,
         }
     }
 }
@@ -94,6 +99,35 @@ impl CostTracker {
             account_data_size_limit,
             ..Self::default()
         }
+    }
+
+    pub fn new_with_account_data_size_limit_and_block_utilization(
+        account_data_size_limit: Option<u64>,
+        block_utilization: u8) -> Self {
+        Self {
+            account_data_size_limit,
+            block_utilization,
+            ..Self::default()
+        }
+    }
+
+    pub fn previous_block_utilization(&self) -> u8 {
+        self.block_utilization
+    }
+
+    /// Wolford's method of calculate moving average
+    pub fn block_utilization(&self) -> u8 {
+        let self_block_utilization = (self.block_cost * 100 / self.block_cost_limit) as u8;
+        // TODO - replace w actual average calc
+        let new_block_utilization = (self.block_utilization + self_block_utilization) / 2;
+
+        println!("=== cost_tracker block_cost {} block_cost_limit {} prev_block_util {} new_block_util {}",
+                 self.block_cost,
+                 self.block_cost_limit,
+                 self.block_utilization,
+                 new_block_utilization);
+
+        new_block_utilization
     }
 
     /// allows to adjust limits initiated during construction

@@ -55,6 +55,7 @@ use {
         accounts_update_notifier_interface::AccountsUpdateNotifier,
         ancestors::{Ancestors, AncestorsForSerialization},
         bank::metrics::*,
+        base_fee_printer::PricedComputeUnits,
         blockhash_queue::BlockhashQueue,
         builtins::{BuiltinPrototype, BUILTINS},
         epoch_accounts_hash::{self, EpochAccountsHash},
@@ -1026,6 +1027,7 @@ impl Bank {
     }
 
     fn default_with_accounts(accounts: Accounts) -> Self {
+        println!("==== default_with_accounts");
         let mut bank = Self {
             bank_freeze_or_destruction_incremented: AtomicBool::default(),
             incremental_snapshot_persistence: None,
@@ -1307,6 +1309,8 @@ impl Bank {
         reward_calc_tracer: Option<impl RewardCalcTracer>,
         new_bank_options: NewBankOptions,
     ) -> Self {
+        println!("==== new from parent");
+
         let mut time = Measure::start("bank::new_from_parent");
         let NewBankOptions { vote_only_bank } = new_bank_options;
 
@@ -1423,15 +1427,18 @@ impl Bank {
                     .map(|drop_callback| drop_callback.clone_box()),
             )),
             freeze_started: AtomicBool::new(false),
-            cost_tracker: RwLock::new(CostTracker::new_with_account_data_size_limit(
-                feature_set
-                    .is_active(&feature_set::cap_accounts_data_len::id())
-                    .then(|| {
-                        parent
-                            .accounts_data_size_limit()
-                            .saturating_sub(accounts_data_size_initial)
-                    }),
-            )),
+            cost_tracker: RwLock::new(
+                CostTracker::new_with_account_data_size_limit_and_block_utilization(
+                    feature_set
+                        .is_active(&feature_set::cap_accounts_data_len::id())
+                        .then(|| {
+                            parent
+                                .accounts_data_size_limit()
+                                .saturating_sub(accounts_data_size_initial)
+                        }),
+                    parent.read_cost_tracker().unwrap().block_utilization(),
+                ),
+            ),
             sysvar_cache: RwLock::new(SysvarCache::default()),
             accounts_data_size_initial,
             accounts_data_size_delta_on_chain: AtomicI64::new(0),
@@ -1807,6 +1814,7 @@ impl Bank {
         debug_do_not_add_builtins: bool,
         accounts_data_size_initial: u64,
     ) -> Self {
+        println!("=== new_from_fields");
         let now = Instant::now();
         let ancestors = Ancestors::from(&fields.ancestors);
         // For backward compatibility, we can only serialize and deserialize
@@ -5060,6 +5068,14 @@ impl Bank {
             self.get_reward_interval(),
             &program_accounts_map,
             &programs_loaded_for_tx_batch.borrow(),
+            &PricedComputeUnits {
+                slot: self.slot,
+                block_utilization: self
+                    .read_cost_tracker()
+                    .unwrap()
+                    .previous_block_utilization(),
+                ..PricedComputeUnits::default()
+            },
         );
         load_time.stop();
 
@@ -6682,10 +6698,23 @@ impl Bank {
             .feature_set
             .is_active(&feature_set::cap_accounts_data_len::id())
         {
-            self.cost_tracker = RwLock::new(CostTracker::new_with_account_data_size_limit(Some(
-                self.accounts_data_size_limit()
-                    .saturating_sub(self.accounts_data_size_initial),
-            )));
+            self.cost_tracker = RwLock::new(
+                CostTracker::new_with_account_data_size_limit_and_block_utilization(
+                    Some(
+                        self.accounts_data_size_limit()
+                            .saturating_sub(self.accounts_data_size_initial),
+                    ),
+                    self.rc
+                        .parent
+                        .read()
+                        .unwrap()
+                        .clone()
+                        .unwrap()
+                        .read_cost_tracker()
+                        .unwrap()
+                        .block_utilization(),
+                ),
+            );
         }
     }
 

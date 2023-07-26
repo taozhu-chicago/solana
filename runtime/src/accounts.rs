@@ -722,6 +722,7 @@ impl Accounts {
         in_reward_interval: RewardInterval,
         program_accounts: &HashMap<Pubkey, (&Pubkey, u64)>,
         loaded_programs: &LoadedProgramsForTxBatch,
+        priced_compute_units: &PricedComputeUnits,
     ) -> Vec<TransactionLoadResult> {
         txs.iter()
             .zip(lock_results)
@@ -771,7 +772,7 @@ impl Accounts {
                     };
 
                     if let Some(base_fee_printer) = base_fee_printer {
-                        base_fee_printer.print(&PricedComputeUnits::default());
+                        base_fee_printer.print(priced_compute_units);
                     }
 
                     // Update nonce with fee-subtracted accounts

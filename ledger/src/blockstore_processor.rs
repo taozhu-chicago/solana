@@ -352,15 +352,20 @@ fn execute_batches(
         })
         .collect::<Vec<_>>();
 
+    // In order to track block utilization during ledger replay, enabling cost_tracker at replay,
+    // and without drop blocks if exceeds limit (could habppen due to leader had qos adjustment
+    // logic)
+    /*
     if bank
         .feature_set
         .is_active(&feature_set::apply_cost_tracker_during_replay::id())
+        // */
     {
         let mut cost_tracker = bank.write_cost_tracker().unwrap();
         for tx_cost in &tx_costs {
             cost_tracker
                 .try_add(tx_cost)
-                .map_err(TransactionError::from)?;
+                .map_err(TransactionError::from); // ?;
         }
     }
 
