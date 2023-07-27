@@ -49,7 +49,7 @@ impl ComputeUnitPricer {
         if post_block_utilization_ema >= BLOCK_UTILIZATION_UPPER_BOUND {
             self.cu_price = PRICE_CHANGE_SCALE
                 .saturating_add(PRICE_CHANGE_RATE)
-                .saturating_mul(self.cu_price.max(1)) // quick hack for in case cu_priced reduced to `0`,
+                .saturating_mul(self.cu_price.max(10)) // quick hack for in case cu_priced reduced to `0`,
                 .saturating_div(PRICE_CHANGE_SCALE);
         } else if post_block_utilization_ema <= BLOCK_UTILIZATION_LOWER_BOUND {
             self.cu_price = PRICE_CHANGE_SCALE
