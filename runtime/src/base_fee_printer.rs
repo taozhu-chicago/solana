@@ -9,10 +9,7 @@
 //!           where N could be 16 to start with
 //!    d. add the min/max if necessary
 
-use {
-    solana_cost_model::cost_tracker::ComputeUnitPricer,
-    solana_sdk::{pubkey::Pubkey, signature::Signature},
-};
+use solana_sdk::{compute_unit_pricer::ComputeUnitPricer, pubkey::Pubkey, signature::Signature};
 
 #[derive(Debug, Default)]
 pub struct BaseFeePrinter {

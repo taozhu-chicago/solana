@@ -4,7 +4,6 @@
 pub mod block_cost_limits;
 pub mod cost_model;
 pub mod cost_tracker;
-mod ema;
 pub mod transaction_cost;
 
 #[macro_use]

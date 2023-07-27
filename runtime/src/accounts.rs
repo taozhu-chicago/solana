@@ -26,7 +26,6 @@ use {
     itertools::Itertools,
     log::*,
     solana_address_lookup_table_program::{error::AddressLookupError, state::AddressLookupTable},
-    solana_cost_model::cost_tracker::ComputeUnitPricer,
     solana_program_runtime::{
         compute_budget::{self, ComputeBudget},
         loaded_programs::LoadedProgramsForTxBatch,
@@ -36,6 +35,7 @@ use {
         account_utils::StateMut,
         bpf_loader_upgradeable::{self, UpgradeableLoaderState},
         clock::{BankId, Slot},
+        compute_unit_pricer::ComputeUnitPricer,
         feature_set::{
             self, add_set_tx_loaded_accounts_data_size_instruction,
             include_loaded_accounts_data_size_in_fee_calculation,
