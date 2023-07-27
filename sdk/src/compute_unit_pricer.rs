@@ -37,6 +37,11 @@ impl Default for ComputeUnitPricer {
 }
 
 impl ComputeUnitPricer {
+    // use currently cu_price to calculate total fee in lamports
+    pub fn calculate_fee(&self, compute_units: u64) -> u64 {
+        compute_units.saturating_mul(self.cu_price).saturating_div(1_000)
+    }
+
     pub fn update(&mut self, slot: Slot, block_cost: u64, block_cost_limit: u64) {
         let prev_block_utilization_ema = self.block_utilization.get_ema();
         let prev_cu_price = self.cu_price;

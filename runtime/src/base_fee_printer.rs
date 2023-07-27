@@ -17,18 +17,19 @@ pub struct BaseFeePrinter {
     pub payer_pre_balance: u64,
     pub payer_post_balance: u64, // if this field is 0/nil, then the payer account was invalid. (eg Not_paid)
     pub tx_sig: Signature,
-    pub tx_cost: u64, // the total CU of the TX that contributes to base fee.
-    // two possibilities to experiment:
-    // sig + requested_cu + loaded_accounts_size (basically current state), or
-    // tx.calculate_cost() (eg, the future state, all CU of tx used for
-    // scheduling and paying)
-    pub tx_base_fee: u64, // whatever returned from calculate_fee()
+    pub tx_cost: u64, // the total CU of the TX
+    pub tx_priority_fee: u64,
+    pub tx_base_fee_orig: u64, // original base fee
+    pub tx_base_fee_expt: u64, // the expriment base fee
 }
 
 impl BaseFeePrinter {
     pub fn print(&self, compute_unit_pricer: &ComputeUnitPricer) {
         println!(
-            "BFP: payer {:?} payer_pre_bal {:?} payer_post_bal {:?} slot {:?} tx_sig {:?} tx_cost {:?} block_utilization {:?} cu_price {:?} tx_base_fee {:?}",
+            "BFP: payer {:?} payer_pre_bal {:?} payer_post_bal {:?} \
+            slot {:?} tx_sig {:?} tx_cost {:?} \
+            block_utilization {:?} cu_price {:?} \
+            tx_priority_fee {} tx_base_fee {} tx_base_fee_expt {}",
             self.payer_pubkey,
             self.payer_pre_balance,
             self.payer_post_balance,
@@ -37,7 +38,9 @@ impl BaseFeePrinter {
             self.tx_cost,
             compute_unit_pricer.block_utilization.get_ema(),
             compute_unit_pricer.cu_price,
-            self.tx_base_fee,
+            self.tx_priority_fee,
+            self.tx_base_fee_orig,
+            self.tx_base_fee_expt,
         );
     }
 }

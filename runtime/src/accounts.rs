@@ -735,7 +735,7 @@ impl Accounts {
                         .unwrap_or_else(|| {
                             hash_queue.get_lamports_per_signature(tx.message().recent_blockhash())
                         });
-                    let fee = if let Some(lamports_per_signature) = lamports_per_signature {
+                    let (priority_fee, base_fee) = if let Some(lamports_per_signature) = lamports_per_signature {
                         fee_structure.calculate_fee(
                             tx.message(),
                             lamports_per_signature,
@@ -748,17 +748,22 @@ impl Accounts {
                     };
 
                     // Only experiment non-vote transactions
-                    let mut base_fee_printer = (!tx.is_simple_vote_transaction()).then_some(BaseFeePrinter {
+                    let mut base_fee_printer = (!tx.is_simple_vote_transaction()).then(|| {
+                        let tx_cost = solana_cost_model::cost_model::CostModel::calculate_cost(tx, feature_set).sum();
+                        let tx_base_fee_expt = compute_unit_pricer.calculate_fee(tx_cost);
+                        BaseFeePrinter {
                         tx_sig: *tx.signature(),
-                        tx_cost: solana_cost_model::cost_model::CostModel::calculate_cost(tx, feature_set).sum(),
-                        tx_base_fee: fee,
+                        tx_cost,
+                        tx_priority_fee: priority_fee,
+                        tx_base_fee_orig: base_fee,
+                        tx_base_fee_expt,
                         ..BaseFeePrinter::default()
-                    });
+                        }});
 
-                    let loaded_transaction = match self.load_transaction_accounts(
+                    let result = self.load_transaction_accounts(
                         ancestors,
                         tx,
-                        fee,
+                        base_fee.saturating_add(priority_fee),
                         error_counters,
                         rent_collector,
                         feature_set,
@@ -767,14 +772,16 @@ impl Accounts {
                         program_accounts,
                         loaded_programs,
                         &mut base_fee_printer,
-                    ) {
-                        Ok(loaded_transaction) => loaded_transaction,
-                        Err(e) => return (Err(e), None),
-                    };
+                    );
 
                     if let Some(base_fee_printer) = base_fee_printer {
                         base_fee_printer.print(compute_unit_pricer);
                     }
+
+                    let loaded_transaction = match result {
+                        Ok(loaded_transaction) => loaded_transaction,
+                        Err(e) => return (Err(e), None),
+                    };
 
                     // Update nonce with fee-subtracted accounts
                     let nonce = if let Some(nonce) = nonce {

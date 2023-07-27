@@ -4087,7 +4087,7 @@ impl Bank {
         message: &SanitizedMessage,
         lamports_per_signature: u64,
     ) -> u64 {
-        self.fee_structure.calculate_fee(
+        let (priority_fee, base_fee) = self.fee_structure.calculate_fee(
             message,
             lamports_per_signature,
             &ComputeBudget::fee_budget_limits(
@@ -4099,7 +4099,8 @@ impl Bank {
                 .is_active(&remove_congestion_multiplier_from_fee_calculation::id()),
             self.feature_set
                 .is_active(&include_loaded_accounts_data_size_in_fee_calculation::id()),
-        )
+        );
+        priority_fee.saturating_add(base_fee)
     }
 
     #[deprecated(
