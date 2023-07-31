@@ -1,4 +1,7 @@
-use crate::{clock::Slot, ema::AggregatedVarianceStats};
+use{
+    crate::{clock::Slot, ema::AggregatedVarianceStats},
+    std::cmp::Ordering,
+};
 
 #[derive(Clone, Debug)]
 pub struct ComputeUnitPricer {
@@ -16,6 +19,7 @@ pub struct ComputeUnitPricer {
     pub cu_price: u64,
 }
 
+const NORMAL_CU_PRICE: u64 = 1_000;
 const PRICE_CHANGE_RATE: u64 = 125;
 const PRICE_CHANGE_SCALE: u64 = 1_000;
 
@@ -39,7 +43,7 @@ impl Default for ComputeUnitPricer {
         Self {
             slot: 0,
             block_utilization: AggregatedVarianceStats::new_with_initial_ema(BLOCK_TARGET_UTILIZATION), //default(),
-            cu_price: 1_000,
+            cu_price: NORMAL_CU_PRICE,
         }
     }
 }
@@ -69,6 +73,25 @@ impl ComputeUnitPricer {
                 .saturating_sub(PRICE_CHANGE_RATE)
                 .saturating_mul(self.cu_price)
                 .saturating_div(PRICE_CHANGE_SCALE);
+        } else {
+            // mean reversion
+            match self.cu_price.cmp(&NORMAL_CU_PRICE) {
+                Ordering::Equal => (),
+                Ordering::Greater => {
+                    self.cu_price = PRICE_CHANGE_SCALE
+                        .saturating_sub(PRICE_CHANGE_RATE)
+                        .saturating_mul(self.cu_price)
+                        .saturating_div(PRICE_CHANGE_SCALE)
+                        .max(NORMAL_CU_PRICE);
+                }
+                Ordering::Less => {
+                    self.cu_price = PRICE_CHANGE_SCALE
+                        .saturating_add(PRICE_CHANGE_RATE)
+                        .saturating_mul(self.cu_price)
+                        .saturating_div(PRICE_CHANGE_SCALE)
+                        .min(NORMAL_CU_PRICE);
+                }
+            }
         }
 
         println!("=== slot {} block_cost {} block_cost_limit {} this_block_util {} prev_block_util_ems {} post_block_util_ema {} prev_cu_price {} post_cu_price {}",
