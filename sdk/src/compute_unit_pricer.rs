@@ -13,14 +13,22 @@ pub struct ComputeUnitPricer {
     ///    if block_utilization > 90% full, increase the cu_price by 1.125x
     ///    if block_utilization < 50% full, decrease the cu_price by 0.875x
     /// it starts w 1000 milli-lamport/cu
-    pub cu_price: u64, // the number of lamports per CU
+    pub cu_price: u64,
 }
 
 const PRICE_CHANGE_RATE: u64 = 125;
 const PRICE_CHANGE_SCALE: u64 = 1_000;
-// TODO - make them cli arg?
-const BLOCK_UTILIZATION_UPPER_BOUND: u64 = 90;
-const BLOCK_UTILIZATION_LOWER_BOUND: u64 = 50;
+
+// this const largely depends on ema algo, 
+// it is set to the value where average(ema) == median(ema) for now
+const BLOCK_TARGET_UTILIZATION: u64 = 66;
+// the distance from target utilization that should be considered as "normal", where
+// price shall stay same if ema fall into to +/_Band_width
+// it's value also depends on ema algo, the higher ema's variance, the larger this
+// value should be. Currently set to 5 for target `66`
+const UTILIZATION_BAND_WIDTH: u64 = 5;
+const BLOCK_UTILIZATION_UPPER_BOUND: u64 = BLOCK_TARGET_UTILIZATION + UTILIZATION_BAND_WIDTH;
+const BLOCK_UTILIZATION_LOWER_BOUND: u64 = BLOCK_TARGET_UTILIZATION - UTILIZATION_BAND_WIDTH;
 
 // NOTE, not setting MIN/MAX cu_price yet for expriment, perhaps a good idea to have them when go
 // out of exprimenting
@@ -30,7 +38,7 @@ impl Default for ComputeUnitPricer {
     fn default() -> Self {
         Self {
             slot: 0,
-            block_utilization: AggregatedVarianceStats::default(),
+            block_utilization: AggregatedVarianceStats::new_with_initial_ema(BLOCK_TARGET_UTILIZATION), //default(),
             cu_price: 1_000,
         }
     }

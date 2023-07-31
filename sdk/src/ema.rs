@@ -1,6 +1,6 @@
 // N is number of datapoints used in exponential weighted moving average calculoation.
-// default to 16 blocks
-const N: i128 = 16;
+// default to 16 leader blocks
+const N: i128 = 16 * 4;
 // The EMA_ALPHA represents the degree of weighting decrease in EMA,
 // a constant smoothing factor between 0 and 1. A higher alpha
 // discounts older observations faster.
@@ -17,6 +17,13 @@ pub struct AggregatedVarianceStats {
 }
 
 impl AggregatedVarianceStats {
+    pub fn new_with_initial_ema(value: u64) -> Self {
+        Self {
+            ema: value,
+            ema_var: 0u64,
+        }
+    }
+
     pub fn get_ema(&self) -> u64 {
         self.ema
     }
