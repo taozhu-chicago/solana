@@ -28,7 +28,8 @@ impl BaseFeePrinter {
         println!(
             "BFP: payer {:?} payer_pre_bal {:?} payer_post_bal {:?} \
             slot {:?} tx_sig {:?} tx_cost {:?} \
-            block_utilization {:?} cu_price {:?} \
+            block_utilization_ema {:?} block_utilization_stddev {:?} \
+            cu_price {:?} \
             tx_priority_fee {} tx_base_fee {} tx_base_fee_expt {}",
             self.payer_pubkey,
             self.payer_pre_balance,
@@ -37,6 +38,7 @@ impl BaseFeePrinter {
             self.tx_sig,
             self.tx_cost,
             compute_unit_pricer.block_utilization.get_ema(),
+            compute_unit_pricer.block_utilization.get_stddev(),
             compute_unit_pricer.cu_price,
             self.tx_priority_fee,
             self.tx_base_fee_orig,

@@ -23,14 +23,11 @@ const NORMAL_CU_PRICE: u64 = 1_000;
 const PRICE_CHANGE_RATE: u64 = 125;
 const PRICE_CHANGE_SCALE: u64 = 1_000;
 
-// this const largely depends on ema algo, 
-// it is set to the value where average(ema) == median(ema) for now
-const BLOCK_TARGET_UTILIZATION: u64 = 66;
-// the distance from target utilization that should be considered as "normal", where
-// price shall stay same if ema fall into to +/_Band_width
-// it's value also depends on ema algo, the higher ema's variance, the larger this
-// value should be. Currently set to 5 for target `66`
-const UTILIZATION_BAND_WIDTH: u64 = 5;
+// the `mean` of block_utilizatino ema, returned from script
+const BLOCK_TARGET_UTILIZATION: u64 = 81;
+// the distance from target utilization that should be considered as "normal",
+// set to be 2*stddev of raw block_utilization, return from script;
+const UTILIZATION_BAND_WIDTH: u64 = 7;
 const BLOCK_UTILIZATION_UPPER_BOUND: u64 = BLOCK_TARGET_UTILIZATION + UTILIZATION_BAND_WIDTH;
 const BLOCK_UTILIZATION_LOWER_BOUND: u64 = BLOCK_TARGET_UTILIZATION - UTILIZATION_BAND_WIDTH;
 
@@ -42,7 +39,7 @@ impl Default for ComputeUnitPricer {
     fn default() -> Self {
         Self {
             slot: 0,
-            block_utilization: AggregatedVarianceStats::new_with_initial_ema(BLOCK_TARGET_UTILIZATION), //default(),
+            block_utilization: AggregatedVarianceStats::new_with_initial_ema(BLOCK_TARGET_UTILIZATION),
             cu_price: NORMAL_CU_PRICE,
         }
     }
@@ -56,12 +53,14 @@ impl ComputeUnitPricer {
 
     pub fn update(&mut self, slot: Slot, block_cost: u64, block_cost_limit: u64) {
         let prev_block_utilization_ema = self.block_utilization.get_ema();
+        let prev_block_utilization_stddev = self.block_utilization.get_stddev();
         let prev_cu_price = self.cu_price;
         let this_block_utilization = block_cost * 100 / block_cost_limit;
 
         self.slot = slot;
         self.block_utilization.aggregate(this_block_utilization);
         let post_block_utilization_ema = self.block_utilization.get_ema();
+        let post_block_utilization_stddev = self.block_utilization.get_stddev();
 
         if post_block_utilization_ema >= BLOCK_UTILIZATION_UPPER_BOUND {
             self.cu_price = PRICE_CHANGE_SCALE
@@ -94,13 +93,18 @@ impl ComputeUnitPricer {
             }
         }
 
-        println!("=== slot {} block_cost {} block_cost_limit {} this_block_util {} prev_block_util_ems {} post_block_util_ema {} prev_cu_price {} post_cu_price {}",
+        println!("=== slot {} block_cost {} block_cost_limit {} this_block_util {} \
+                 prev_block_util_ems {} prev_block_util_stddev {} \
+                 post_block_util_ema {} post_block_util_stddev {} \
+                 prev_cu_price {} post_cu_price {}",
                  self.slot,
                  block_cost,
                  block_cost_limit,
                  this_block_utilization,
                  prev_block_utilization_ema,
+                 prev_block_utilization_stddev,
                  post_block_utilization_ema,
+                 post_block_utilization_stddev,
                  prev_cu_price,
                  self.cu_price,
                  );

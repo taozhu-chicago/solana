@@ -1,6 +1,6 @@
 // N is number of datapoints used in exponential weighted moving average calculoation.
-// default to 16 leader blocks
-const N: i128 = 16 * 4;
+// default to 16 blocks
+const N: i128 = 16;
 // The EMA_ALPHA represents the degree of weighting decrease in EMA,
 // a constant smoothing factor between 0 and 1. A higher alpha
 // discounts older observations faster.
