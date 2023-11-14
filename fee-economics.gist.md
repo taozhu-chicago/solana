@@ -86,12 +86,12 @@ To implement this solution effectively, we propose the following steps:
   - [ ] Use actual operating costs as concrete data to define what **Resources** are
   - [ ] Add Compute Budget instructions to request additional resources
 - Implement a fee calculation mechanism based on the declared resource needs of transactions.
-  - [ ] Formulate `x lamports/cu`[^galactus][^rate][^floor]
+  - [ ] Formulate `x lamports/cu`[^galactus][^rate][^floor][^gameplan]
   - [ ] Build (simulation) tool to formulate reward/burn rate (utilizing Banking Tracer data)
 - Improve Prioritization Fee implementation for resources congestion control[^prio]
   - [ ] Prio-graph Scheduler to improve priority ordering
   - [ ] Build tool/dashboard to measure and monitor how prioritization fee is respected, and local fee market condition
-  - [ ] Improve local fee market quality by increase prioritization fee unit
+  - [ ] Improve local fee market quality by increase prioritization fee unit[^fee-market]
 - Educate the community about the benefits of this approach and the importance of reasonable resource requests.
   - [ ] build tool to evaluate if "base-fee + Priority-fee" is sufficient of solving spamming issue, improving performance, and balancing submitter/validator economic interests.[^dynamic]
 
@@ -167,3 +167,17 @@ Efficient resource allocation is a fundamental aspect of optimizing cluster perf
       1. Transaction submitter is motivated to check account hot/cold status (via RPC) as part of simulation, otherwise they have to request additional compute-unit-limit, therefore paying higher fees. 
       1. This require payer also needs to pay failed transactions
       1. The worse case scenario: submitter does not check account coldness, leader doesn't care about fee-collecting success rate, then we could have a severely under-priced block. But runtime will detect cold account and fail transaction as soon as requested cu limit is exceeded.
+    - another option is to create a market for accounts loading
+      1. Submitter can request up to *xyz* Compute Units to load accounts for this transaction. Producer could have better idea of requested accounts hot/cold status to help decide if including such transaction is profitable. 
+      1. Protocol defines **cold**, and cost of loading cold accounts. Requested CUs for loading accounts go to block limit;
+      1. What is loading cold account is more expensive than 48M CU (eg 400ms)?
+
+[^fee-market]: with tiny prio fee units, we see priority fee range from [5, 300_000+], which reduce the local fee market quality, cause the min/max fee doesn't mean much then just random. Ideally user should be able to query what's minimum fee to get chance of access the account, and what was the latest maximum fee. Pyth could have used that info to set their write-lock priority transparently, if the local fee market has high quality.
+
+[^gameplan]: a potential end goal could be:
+    1. create a off-chain program that implements an community agreed formula to calculate lamport/CU from current epoch.
+    1. everyone can run it,
+    1. staked validators can then optionally submit vote for next epoch lamport/cu, may or may-not use the value returned from the offchain tool
+    1. a on-chain program aggregates such vote, if reach consensus, the next epoch lamport/cu will be updated.
+    So the off-chain tool is just informational, validator can submit whatever lamport/cu they wished, so long they can get majority.
+

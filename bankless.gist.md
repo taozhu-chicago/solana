@@ -25,6 +25,26 @@ Bankless leader
   if to relax fee payer restraint, it raises two questin: how to prevent DoS, and who pays ledger space (for unpayable tx)?
   1. if make producer to pay to transaction's ledger cost if it has insufficient fund, then validation (eg replay) of a slot including consensus of producer paid the cost. How would that done properly? Will that delay OC by 1 or even more slots?
 
+
+// My slack note: 
+Created Project for bankless leader (https://github.com/orgs/solana-labs/projects/18/views/1)
+coarse fe payer filter:
+what's the idea?
+A.F has bandwidth to impl it?
+Issue: review and find all transaction errors that are static (such as InvbalidAccountForFee), filter them out up front (ideally at santitizing) , this helps to reduce number of bad transactions in block
+in bankless, are accounts fully loaded? Cause some of tx_errors need to exam loaded accounts
+Issue/Proposal: replay_stage updates a cache of <payer_key, balance> , packer reads and writes (to pre-deduct balance for packed, or selected, transactions).
+transaction fee calculation needs to be moved out
+some of accounts' validate fee-payer needs to be moved out
+https://discord.com/channels/428295358100013066/439194979856809985/1048090517184987209
+really need to add feature to Replay to prevent "to dense" blocks, especially if leader is bankless.
+design metrics to measure before/after leader perf, and presure on replay
+Are there other refactors to do before "removing bank" from leader?
+Bench test Lookup table perf fits into this project, important to assess worst-case scenario before project begin
+Step into Replay code, at least at area of unpack blocks to be in sync with leader packing logic.
+
+// *slack note */
+
 /* Original proposal content: 
 
 ---
