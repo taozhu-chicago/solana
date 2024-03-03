@@ -191,12 +191,13 @@ pub fn execute_batch(
         .for_each(|(execution_result, tx)| {
             if let Some(details) = execution_result.details() {
                 let actual_cost = details.executed_units;
-                let estimated_cost =
-                    CostModel::calculate_cost(tx, &bank.feature_set).bpf_execution_cost();
-                if actual_cost > estimated_cost {
+                let tx_cost = CostModel::calculate_cost(tx, &bank.feature_set);
+                let estimated_builtin_cost = tx_cost.builtins_execution_cost();
+                let estimated_bpf_cost = tx_cost.bpf_execution_cost();
+                if actual_cost > estimated_bpf_cost {
                     println!(
-                        "==== actual-greater-than-estimated-bpf: {}",
-                        actual_cost - estimated_cost
+                        "==== actual-greater-than-estimated-bpf: estimated-builtin-cost {} estimated-bpf-cost {} actual-cost {} {:?}",
+                        estimated_builtin_cost, estimated_bpf_cost, actual_cost, tx
                     );
                 }
             }
