@@ -183,6 +183,25 @@ pub fn execute_batch(
         ..
     } = tx_results;
 
+    // NOTE - to print the diff when actual cost greater than estimated - should only happen due
+    // to VM consumes units for builtin
+    execution_results
+        .iter()
+        .zip(batch.sanitized_transactions())
+        .for_each(|(execution_result, tx)| {
+            if let Some(details) = execution_result.details() {
+                let actual_cost = details.executed_units;
+                let estimated_cost =
+                    CostModel::calculate_cost(tx, &bank.feature_set).bpf_execution_cost();
+                if actual_cost > estimated_cost {
+                    println!(
+                        "==== actual-greater-than-estimated-bpf: {}",
+                        actual_cost - estimated_cost
+                    );
+                }
+            }
+        });
+
     let executed_transactions = execution_results
         .iter()
         .zip(batch.sanitized_transactions())
