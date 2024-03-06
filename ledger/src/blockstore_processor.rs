@@ -21,7 +21,7 @@ use {
         accounts_update_notifier_interface::AccountsUpdateNotifier,
         epoch_accounts_hash::EpochAccountsHash,
     },
-    solana_cost_model::cost_model::CostModel,
+    solana_cost_model::{cost_model::CostModel, transaction_cost::TransactionCost},
     solana_entry::entry::{
         self, create_ticks, Entry, EntrySlice, EntryType, EntryVerificationStatus, VerifyRecyclers,
     },
@@ -183,6 +183,13 @@ pub fn execute_batch(
         ..
     } = tx_results;
 
+    if bank
+        .feature_set
+        .is_active(&feature_set::apply_cost_tracker_during_replay::id())
+    {
+        check_block_cost_limits(bank, &execution_results, batch.sanitized_transactions())?;
+    }
+
     let executed_transactions = execution_results
         .iter()
         .zip(batch.sanitized_transactions())
@@ -215,6 +222,49 @@ pub fn execute_batch(
 
     let first_err = get_first_error(batch, fee_collection_results);
     first_err.map(|(result, _)| result).unwrap_or(Ok(()))
+}
+
+// collect transaction actual execution cost, apply to cost tracking;
+// fail block if exceeds cost limits
+fn check_block_cost_limits(
+    bank: &Arc<Bank>,
+    execution_results: &[TransactionExecutionResult],
+    sanitized_transactions: &[SanitizedTransaction],
+) -> Result<()> {
+    let tx_costs_with_actual_execution_units: Vec<_> = execution_results
+        .iter()
+        .zip(sanitized_transactions)
+        .filter_map(|(execution_result, tx)| {
+            if let Some(details) = execution_result.details() {
+                let actual_cost = details.executed_units;
+                let mut tx_cost = CostModel::calculate_cost(tx, &bank.feature_set);
+                let estimated_programs_execution_costs = tx_cost.programs_execution_cost();
+                if actual_cost != estimated_programs_execution_costs {
+                    match tx_cost {
+                        TransactionCost::Transaction(ref mut usage_cost_details) => {
+                            usage_cost_details.programs_execution_cost = actual_cost;
+                        }
+                        _ => {
+                            // Shouldn't need to adjust for sismple vote.
+                        }
+                    }
+                }
+                Some(tx_cost)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    {
+        let mut cost_tracker = bank.write_cost_tracker().unwrap();
+        for tx_cost in &tx_costs_with_actual_execution_units {
+            cost_tracker
+                .try_add(tx_cost)
+                .map_err(TransactionError::from)?;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Default)]
@@ -4726,5 +4776,54 @@ pub mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_check_block_cost_limit() {
+        let dummy_leader_pubkey = solana_sdk::pubkey::new_rand();
+        let GenesisConfigInfo {
+            genesis_config,
+            mint_keypair,
+            ..
+        } = create_genesis_config_with_leader(500, &dummy_leader_pubkey, 100);
+        let bank = Arc::new(Bank::new_for_tests(&genesis_config));
+
+        let tx = SanitizedTransaction::from_transaction_for_tests(system_transaction::transfer(
+            &mint_keypair,
+            &Pubkey::new_unique(),
+            1,
+            genesis_config.hash(),
+        ));
+        let tx_cost = CostModel::calculate_cost(&tx, &bank.feature_set);
+        let actual_execution_cu = 1;
+        let block_limit = tx_cost.sum();
+
+        bank.write_cost_tracker()
+            .unwrap()
+            .set_limits(u64::MAX, block_limit, u64::MAX);
+        let txs = vec![tx.clone(), tx];
+        let results = vec![
+            TransactionExecutionResult::Executed {
+                details: TransactionExecutionDetails {
+                    status: Ok(()),
+                    log_messages: None,
+                    inner_instructions: None,
+                    durable_nonce_fee: None, //Some(solana_svm::transaction_results::DurableNonceFee::Invalid),
+                    return_data: None,
+                    executed_units: actual_execution_cu,
+                    accounts_data_len_delta: 0,
+                },
+                programs_modified_by_tx: Box::<
+                    solana_program_runtime::loaded_programs::LoadedProgramsForTxBatch,
+                >::default(),
+            },
+            TransactionExecutionResult::NotExecuted(TransactionError::AccountNotFound),
+        ];
+
+        assert!(check_block_cost_limits(&bank, &results, &txs).is_ok());
+        assert_eq!(
+            Err(TransactionError::WouldExceedMaxBlockCostLimit),
+            check_block_cost_limits(&bank, &results, &txs)
+        );
     }
 }
