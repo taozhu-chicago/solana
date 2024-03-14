@@ -1974,7 +1974,6 @@ pub mod tests {
         solana_sdk::{
             account::{AccountSharedData, WritableAccount},
             epoch_schedule::EpochSchedule,
-            feature_set,
             hash::Hash,
             instruction::{Instruction, InstructionError},
             native_token::LAMPORTS_PER_SOL,
