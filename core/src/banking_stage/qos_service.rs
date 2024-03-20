@@ -926,4 +926,125 @@ mod tests {
                 .batched_programs_execute_cost
         );
     }
+
+    #[test]
+    fn test_remove_and_update_tx_costs() {
+        let GenesisConfigInfo { genesis_config, .. } = create_genesis_config(10);
+        let bank = Arc::new(Bank::new_for_tests(&genesis_config));
+        let signature_cost: u64 = 9000;
+        let estimated_execution_units: u64= 100_000;
+        let reserved_units = signature_cost + estimated_execution_units;
+        let actual_execution_units: u64 = 10;
+        let actual_units: u64 = signature_cost + actual_execution_units;
+
+        let dummy_txs = vec![SanitizedTransaction::from_transaction_for_tests(
+            system_transaction::transfer(&Keypair::new(), &solana_sdk::pubkey::Pubkey::new_unique(), 1, Hash::default()),
+        )];
+        let qos_service = QosService::new(0);
+
+        {
+            let tx_costs = vec![Ok(TransactionCost::Transaction(UsageCostDetails{
+                signature_cost,
+                programs_execution_cost: estimated_execution_units,
+                ..UsageCostDetails::default()
+            }))];
+            let (qos_results, _) = qos_service.select_transactions_per_cost(dummy_txs.iter(), tx_costs.into_iter(), &bank);
+            assert_eq!(reserved_units, bank.read_cost_tracker().unwrap().block_cost());
+            QosService::remove_costs(qos_results.iter(), None, &bank);
+            assert_eq!(0, bank.read_cost_tracker().unwrap().block_cost());
+            QosService::update_costs(qos_results.iter(), None, &bank);
+            assert_eq!(0, bank.read_cost_tracker().unwrap().block_cost());
+        }
+
+
+        {
+            let tx_costs = vec![Ok(TransactionCost::Transaction(UsageCostDetails{
+                signature_cost,
+                programs_execution_cost: estimated_execution_units,
+                ..UsageCostDetails::default()
+            }))];
+            let (qos_results, _) = qos_service.select_transactions_per_cost(dummy_txs.iter(), tx_costs.into_iter(), &bank);
+            assert_eq!(reserved_units, bank.read_cost_tracker().unwrap().block_cost());
+            let commit_result = vec![CommitTransactionDetails::NotCommitted];
+            QosService::remove_costs(qos_results.iter(), Some(&commit_result), &bank);
+            assert_eq!(0, bank.read_cost_tracker().unwrap().block_cost());
+            QosService::update_costs(qos_results.iter(), Some(&commit_result), &bank);
+            assert_eq!(0, bank.read_cost_tracker().unwrap().block_cost());
+        }
+
+        {
+            let tx_costs = vec![Ok(TransactionCost::Transaction(UsageCostDetails{
+                signature_cost,
+                programs_execution_cost: estimated_execution_units,
+                ..UsageCostDetails::default()
+            }))];
+            let (qos_results, _) = qos_service.select_transactions_per_cost(dummy_txs.iter(), tx_costs.into_iter(), &bank);
+            assert_eq!(reserved_units, bank.read_cost_tracker().unwrap().block_cost());
+            let commit_result = vec![CommitTransactionDetails::Committed{compute_units: actual_execution_units,}];
+            QosService::remove_costs(qos_results.iter(), Some(&commit_result), &bank);
+            assert_eq!(reserved_units, bank.read_cost_tracker().unwrap().block_cost());
+            QosService::update_costs(qos_results.iter(), Some(&commit_result), &bank);
+            assert_eq!(actual_units, bank.read_cost_tracker().unwrap().block_cost());
+        }
+
+        {
+            let tx_costs = vec![Ok(TransactionCost::Transaction(UsageCostDetails{
+                signature_cost,
+                programs_execution_cost: estimated_execution_units,
+                ..UsageCostDetails::default()
+            }))];
+            let (qos_results, _) = qos_service.select_transactions_per_cost(dummy_txs.iter(), tx_costs.into_iter(), &bank);
+            assert_eq!(actual_units + reserved_units, bank.read_cost_tracker().unwrap().block_cost());
+            let commit_result = vec![CommitTransactionDetails::Committed{compute_units: estimated_execution_units + 1234,}];
+            QosService::remove_costs(qos_results.iter(), Some(&commit_result), &bank);
+            assert_eq!(actual_units + reserved_units, bank.read_cost_tracker().unwrap().block_cost());
+            QosService::update_costs(qos_results.iter(), Some(&commit_result), &bank);
+            assert_eq!(actual_units + reserved_units + 1234, bank.read_cost_tracker().unwrap().block_cost());
+        }
+    }
+
+    #[test]
+    fn test_remove_and_update_vote_costs() {
+        let GenesisConfigInfo { genesis_config, .. } = create_genesis_config(10);
+        let bank = Arc::new(Bank::new_for_tests(&genesis_config));
+        let actual_execution_units: u64 = solana_vote_program::vote_processor::DEFAULT_COMPUTE_UNITS;
+        let simple_vote_units = 3428;
+
+        let dummy_txs = vec![SanitizedTransaction::from_transaction_for_tests(
+            system_transaction::transfer(&Keypair::new(), &solana_sdk::pubkey::Pubkey::new_unique(), 1, Hash::default()),
+        )];
+        let qos_service = QosService::new(0);
+
+        {
+            let tx_costs = vec![Ok(TransactionCost::SimpleVote { writable_accounts: vec![], })];
+            let (qos_results, _) = qos_service.select_transactions_per_cost(dummy_txs.iter(), tx_costs.into_iter(), &bank);
+            assert_eq!(simple_vote_units, bank.read_cost_tracker().unwrap().block_cost());
+            QosService::remove_costs(qos_results.iter(), None, &bank);
+            assert_eq!(0, bank.read_cost_tracker().unwrap().block_cost());
+            QosService::update_costs(qos_results.iter(), None, &bank);
+            assert_eq!(0, bank.read_cost_tracker().unwrap().block_cost());
+        }
+
+        {
+            let tx_costs = vec![Ok(TransactionCost::SimpleVote { writable_accounts: vec![], })];
+            let (qos_results, _) = qos_service.select_transactions_per_cost(dummy_txs.iter(), tx_costs.into_iter(), &bank);
+            assert_eq!(simple_vote_units, bank.read_cost_tracker().unwrap().block_cost());
+            let commit_result = vec![CommitTransactionDetails::NotCommitted];
+            QosService::remove_costs(qos_results.iter(), Some(&commit_result), &bank);
+            assert_eq!(0, bank.read_cost_tracker().unwrap().block_cost());
+            QosService::update_costs(qos_results.iter(), Some(&commit_result), &bank);
+            assert_eq!(0, bank.read_cost_tracker().unwrap().block_cost());
+        }
+
+        {
+            let tx_costs = vec![Ok(TransactionCost::SimpleVote { writable_accounts: vec![], })];
+            let (qos_results, _) = qos_service.select_transactions_per_cost(dummy_txs.iter(), tx_costs.into_iter(), &bank);
+            assert_eq!(simple_vote_units, bank.read_cost_tracker().unwrap().block_cost());
+            let commit_result = vec![CommitTransactionDetails::Committed{compute_units: actual_execution_units,}];
+            QosService::remove_costs(qos_results.iter(), Some(&commit_result), &bank);
+            assert_eq!(simple_vote_units, bank.read_cost_tracker().unwrap().block_cost());
+            QosService::update_costs(qos_results.iter(), Some(&commit_result), &bank);
+            assert_eq!(simple_vote_units, bank.read_cost_tracker().unwrap().block_cost());
+        }
+    }
 }
