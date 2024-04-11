@@ -10,6 +10,7 @@ use {
         fee::FeeBudgetLimits,
         instruction::{CompiledInstruction, InstructionError},
         pubkey::Pubkey,
+        saturating_add_assign,
         transaction::TransactionError,
     },
 };
@@ -68,13 +69,26 @@ impl From<ComputeBudgetLimits> for FeeBudgetLimits {
 pub fn process_compute_budget_instructions<'a>(
     instructions: impl Iterator<Item = (&'a Pubkey, &'a CompiledInstruction)>,
 ) -> Result<ComputeBudgetLimits, TransactionError> {
-    let mut num_non_compute_budget_instructions: u32 = 0;
     let mut updated_compute_unit_limit = None;
     let mut updated_compute_unit_price = None;
     let mut requested_heap_size = None;
     let mut updated_loaded_accounts_data_size_limit = None;
+    // The change needs to be feature gated, since it's break consensus
+    let mut static_builtin_ix_costs: u32 = 0;
+    let mut non_builtin_ix_costs: u32 = 0;
 
     for (i, (program_id, instruction)) in instructions.enumerate() {
+        if let Some(builtin_ix_cost) =
+            solana_builtin_cost_info::BUILT_IN_INSTRUCTION_COSTS.get(program_id)
+        {
+            saturating_add_assign!(
+                static_builtin_ix_costs,
+                (*builtin_ix_cost).try_into().unwrap()
+            );
+        } else {
+            saturating_add_assign!(non_builtin_ix_costs, DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT);
+        }
+
         if compute_budget::check_id(program_id) {
             let invalid_instruction_data_error = TransactionError::InstructionError(
                 i as u8,
@@ -113,10 +127,15 @@ pub fn process_compute_budget_instructions<'a>(
                 }
                 _ => return Err(invalid_instruction_data_error),
             }
-        } else {
-            // only include non-request instructions in default max calc
-            num_non_compute_budget_instructions =
-                num_non_compute_budget_instructions.saturating_add(1);
+        }
+    }
+
+    // sanity check updated_compute_unit_limit
+    if let Some(user_specified_cu_limit) = updated_compute_unit_limit {
+        if user_specified_cu_limit < static_builtin_ix_costs
+            || user_specified_cu_limit > MAX_COMPUTE_UNIT_LIMIT
+        {
+            return Err(TransactionError::InvalidComputeUnitLimitRequested);
         }
     }
 
@@ -126,10 +145,7 @@ pub fn process_compute_budget_instructions<'a>(
         .min(MAX_HEAP_FRAME_BYTES);
 
     let compute_unit_limit = updated_compute_unit_limit
-        .unwrap_or_else(|| {
-            num_non_compute_budget_instructions
-                .saturating_mul(DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT)
-        })
+        .unwrap_or_else(|| static_builtin_ix_costs.saturating_add(non_builtin_ix_costs))
         .min(MAX_COMPUTE_UNIT_LIMIT);
 
     let compute_unit_price = updated_compute_unit_price.unwrap_or(0);
