@@ -22,3 +22,4 @@
 //! [ubpfl]: crate::bpf_loader_upgradeable
 
 crate::declare_id!("BPFLoader2111111111111111111111111111111111");
+pub const DEFAULT_COMPUTE_UNITS: u64 = 570;

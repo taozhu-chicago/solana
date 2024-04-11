@@ -10,6 +10,7 @@ use crate::{
 };
 
 crate::declare_id!("LoaderV411111111111111111111111111111111111");
+pub const DEFAULT_COMPUTE_UNITS: u64 = 2_000;
 
 /// Cooldown before a program can be un-/redeployed again
 pub const DEPLOYMENT_COOLDOWN_IN_SLOTS: u64 = 750;

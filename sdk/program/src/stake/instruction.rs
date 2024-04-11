@@ -81,6 +81,8 @@ impl<E> DecodeError<E> for StakeError {
     }
 }
 
+pub const DEFAULT_COMPUTE_UNITS: u64 = 750;
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub enum StakeInstruction {
     /// Initialize a stake with lockup and authorization information

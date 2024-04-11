@@ -8,6 +8,7 @@ use {
 };
 
 crate::declare_id!("ComputeBudget111111111111111111111111111111");
+pub const DEFAULT_COMPUTE_UNITS: u64 = 150;
 
 /// Compute Budget Instructions
 #[derive(

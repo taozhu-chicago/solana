@@ -4,6 +4,11 @@
 pub mod serialization;
 pub mod syscalls;
 
+pub use solana_sdk::{
+    bpf_loader::DEFAULT_COMPUTE_UNITS as DEFAULT_LOADER_COMPUTE_UNITS,
+    bpf_loader_deprecated::DEFAULT_COMPUTE_UNITS as DEPRECATED_LOADER_COMPUTE_UNITS,
+    bpf_loader_upgradeable::DEFAULT_COMPUTE_UNITS as UPGRADEABLE_LOADER_COMPUTE_UNITS,
+};
 use {
     solana_measure::measure::Measure,
     solana_program_runtime::{
@@ -53,10 +58,6 @@ use {
     },
     syscalls::{create_program_runtime_environment_v1, morph_into_deployment_environment_v1},
 };
-
-pub const DEFAULT_LOADER_COMPUTE_UNITS: u64 = 570;
-pub const DEPRECATED_LOADER_COMPUTE_UNITS: u64 = 1_140;
-pub const UPGRADEABLE_LOADER_COMPUTE_UNITS: u64 = 2_370;
 
 #[allow(clippy::too_many_arguments)]
 pub fn load_program_from_bytes(

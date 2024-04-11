@@ -1,3 +1,4 @@
+pub use solana_sdk::loader_v4::DEFAULT_COMPUTE_UNITS;
 use {
     solana_measure::measure::Measure,
     solana_program_runtime::{
@@ -35,8 +36,6 @@ use {
         sync::{atomic::Ordering, Arc},
     },
 };
-
-pub const DEFAULT_COMPUTE_UNITS: u64 = 2_000;
 
 pub fn get_state(data: &[u8]) -> Result<&LoaderV4State, InstructionError> {
     unsafe {

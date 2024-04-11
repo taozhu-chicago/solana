@@ -9,6 +9,8 @@ use {
     serde::{Deserialize, Serialize},
 };
 
+pub const DEFAULT_COMPUTE_UNITS: u64 = 750;
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub enum ProgramInstruction {
     /// Create an address lookup table

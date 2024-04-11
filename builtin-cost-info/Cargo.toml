@@ -1,7 +1,7 @@
 [package]
-name = "solana-cost-model"
-description = "Solana cost model"
-documentation = "https://docs.rs/solana-cost-model"
+name = "solana-builtin-cost-info"
+description = "Solana builtin programs cost info"
+documentation = "https://docs.rs/solana-builtin-cost-info"
 version = { workspace = true }
 authors = { workspace = true }
 repository = { workspace = true }
@@ -12,22 +12,15 @@ edition = { workspace = true }
 [dependencies]
 lazy_static = { workspace = true }
 log = { workspace = true }
-solana-builtin-cost-info = { workspace = true }
-solana-frozen-abi = { workspace = true }
-solana-frozen-abi-macro = { workspace = true }
-solana-metrics = { workspace = true }
-solana-program-runtime = { workspace = true }
 solana-sdk = { workspace = true }
-solana-vote-program = { workspace = true }
 
 [lib]
 crate-type = ["lib"]
-name = "solana_cost_model"
+name = "solana_builtin_cost_info"
 
 [dev-dependencies]
 solana-logger = { workspace = true }
 solana-sdk = { workspace = true, features = ["dev-context-only-utils"] }
-solana-system-program = { workspace = true }
 static_assertions = { workspace = true }
 test-case = { workspace = true }
 

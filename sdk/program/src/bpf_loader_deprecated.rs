@@ -12,3 +12,4 @@
 //! version located in `entrypoint_deprecated.rs`.
 
 crate::declare_id!("BPFLoader1111111111111111111111111111111111");
+pub const DEFAULT_COMPUTE_UNITS: u64 = 1_140;

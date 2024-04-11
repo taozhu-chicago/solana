@@ -1,5 +1,6 @@
 //! Config program
 
+pub use solana_sdk::config::program::DEFAULT_COMPUTE_UNITS;
 use {
     crate::ConfigKeys,
     bincode::deserialize,
@@ -10,8 +11,6 @@ use {
     },
     std::collections::BTreeSet,
 };
-
-pub const DEFAULT_COMPUTE_UNITS: u64 = 450;
 
 declare_process_instruction!(Entrypoint, DEFAULT_COMPUTE_UNITS, |invoke_context| {
     let transaction_context = &invoke_context.transaction_context;

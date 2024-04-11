@@ -1,3 +1,4 @@
+pub use solana_sdk::address_lookup_table::instruction::DEFAULT_COMPUTE_UNITS;
 use {
     solana_program_runtime::{declare_process_instruction, ic_msg, invoke_context::InvokeContext},
     solana_sdk::{
@@ -18,8 +19,6 @@ use {
     },
     std::convert::TryFrom,
 };
-
-pub const DEFAULT_COMPUTE_UNITS: u64 = 750;
 
 declare_process_instruction!(Entrypoint, DEFAULT_COMPUTE_UNITS, |invoke_context| {
     let transaction_context = &invoke_context.transaction_context;

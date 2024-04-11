@@ -23,6 +23,7 @@ use crate::{
 };
 
 crate::declare_id!("BPFLoaderUpgradeab1e11111111111111111111111");
+pub const DEFAULT_COMPUTE_UNITS: u64 = 2_370;
 
 /// Upgradeable loader account states
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Copy, AbiExample)]

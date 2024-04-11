@@ -557,6 +557,7 @@ pub use wasm_bindgen::prelude::wasm_bindgen;
 pub mod config {
     pub mod program {
         crate::declare_id!("Config1111111111111111111111111111111111111");
+        pub const DEFAULT_COMPUTE_UNITS: u64 = 450;
     }
 }
 

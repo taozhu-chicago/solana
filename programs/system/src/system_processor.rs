@@ -295,7 +295,7 @@ fn transfer_with_seed(
     )
 }
 
-pub const DEFAULT_COMPUTE_UNITS: u64 = 150;
+pub use system_program::DEFAULT_COMPUTE_UNITS;
 
 declare_process_instruction!(Entrypoint, DEFAULT_COMPUTE_UNITS, |invoke_context| {
     let transaction_context = &invoke_context.transaction_context;

@@ -23,7 +23,7 @@ impl TransactionCost {
             Self::SimpleVote { .. } => {
                 const _: () = assert!(
                     SIMPLE_VOTE_USAGE_COST
-                        == solana_vote_program::vote_processor::DEFAULT_COMPUTE_UNITS
+                        == solana_sdk::vote::instruction::DEFAULT_COMPUTE_UNITS
                             + block_cost_limits::SIGNATURE_COST
                             + 2 * block_cost_limits::WRITE_LOCK_UNITS
                             + 8
@@ -37,7 +37,7 @@ impl TransactionCost {
 
     pub fn programs_execution_cost(&self) -> u64 {
         match self {
-            Self::SimpleVote { .. } => solana_vote_program::vote_processor::DEFAULT_COMPUTE_UNITS,
+            Self::SimpleVote { .. } => solana_sdk::vote::instruction::DEFAULT_COMPUTE_UNITS,
             Self::Transaction(usage_cost) => usage_cost.programs_execution_cost,
         }
     }

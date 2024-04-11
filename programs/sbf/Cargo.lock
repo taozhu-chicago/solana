@@ -4784,6 +4784,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-builtin-programs"
+version = "2.0.0"
+dependencies = [
+ "lazy_static",
+ "log",
+ "rustc_version",
+ "solana-sdk",
+]
+
+[[package]]
 name = "solana-clap-utils"
 version = "2.0.0"
 dependencies = [
@@ -4940,6 +4950,7 @@ dependencies = [
  "serde_derive",
  "solana-accounts-db",
  "solana-bloom",
+ "solana-builtin-programs",
  "solana-client",
  "solana-cost-model",
  "solana-entry",
@@ -4988,18 +4999,12 @@ dependencies = [
  "lazy_static",
  "log",
  "rustc_version",
- "solana-address-lookup-table-program",
- "solana-bpf-loader-program",
- "solana-compute-budget-program",
- "solana-config-program",
+ "solana-builtin-programs",
  "solana-frozen-abi",
  "solana-frozen-abi-macro",
- "solana-loader-v4-program",
  "solana-metrics",
  "solana-program-runtime",
  "solana-sdk",
- "solana-stake-program",
- "solana-system-program",
  "solana-vote-program",
 ]
 

@@ -20,6 +20,8 @@ use {
     serde_derive::{Deserialize, Serialize},
 };
 
+pub const DEFAULT_COMPUTE_UNITS: u64 = 2_100;
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub enum VoteInstruction {
     /// Initialize a vote account
