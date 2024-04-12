@@ -83,7 +83,7 @@ pub fn process_compute_budget_instructions<'a>(
         {
             saturating_add_assign!(
                 static_builtin_ix_costs,
-                (*builtin_ix_cost).try_into().unwrap()
+                u32::try_from(*builtin_ix_cost).unwrap()
             );
         } else {
             saturating_add_assign!(non_builtin_ix_costs, DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT);
@@ -199,6 +199,7 @@ mod tests {
 
     #[test]
     fn test_process_instructions() {
+        let cu_limit = 1000;
         // Units
         test!(
             &[],
@@ -209,21 +210,11 @@ mod tests {
         );
         test!(
             &[
-                ComputeBudgetInstruction::set_compute_unit_limit(1),
+                ComputeBudgetInstruction::set_compute_unit_limit(cu_limit),
                 Instruction::new_with_bincode(Pubkey::new_unique(), &0_u8, vec![]),
             ],
             Ok(ComputeBudgetLimits {
-                compute_unit_limit: 1,
-                ..ComputeBudgetLimits::default()
-            })
-        );
-        test!(
-            &[
-                ComputeBudgetInstruction::set_compute_unit_limit(MAX_COMPUTE_UNIT_LIMIT + 1),
-                Instruction::new_with_bincode(Pubkey::new_unique(), &0_u8, vec![]),
-            ],
-            Ok(ComputeBudgetLimits {
-                compute_unit_limit: MAX_COMPUTE_UNIT_LIMIT,
+                compute_unit_limit: cu_limit,
                 ..ComputeBudgetLimits::default()
             })
         );
@@ -242,20 +233,20 @@ mod tests {
                 Instruction::new_with_bincode(Pubkey::new_unique(), &0_u8, vec![]),
                 Instruction::new_with_bincode(Pubkey::new_unique(), &0_u8, vec![]),
                 Instruction::new_with_bincode(Pubkey::new_unique(), &0_u8, vec![]),
-                ComputeBudgetInstruction::set_compute_unit_limit(1),
+                ComputeBudgetInstruction::set_compute_unit_limit(cu_limit),
             ],
             Ok(ComputeBudgetLimits {
-                compute_unit_limit: 1,
+                compute_unit_limit: cu_limit,
                 ..ComputeBudgetLimits::default()
             })
         );
         test!(
             &[
-                ComputeBudgetInstruction::set_compute_unit_limit(1),
+                ComputeBudgetInstruction::set_compute_unit_limit(cu_limit),
                 ComputeBudgetInstruction::set_compute_unit_price(42)
             ],
             Ok(ComputeBudgetLimits {
-                compute_unit_limit: 1,
+                compute_unit_limit: cu_limit,
                 compute_unit_price: 42,
                 ..ComputeBudgetLimits::default()
             })
@@ -275,7 +266,8 @@ mod tests {
                 Instruction::new_with_bincode(Pubkey::new_unique(), &0_u8, vec![]),
             ],
             Ok(ComputeBudgetLimits {
-                compute_unit_limit: DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT,
+                compute_unit_limit: DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT
+                    + u32::try_from(solana_sdk::compute_budget::DEFAULT_COMPUTE_UNITS).unwrap(),
                 updated_heap_bytes: 40 * 1024,
                 ..ComputeBudgetLimits::default()
             })
@@ -316,7 +308,8 @@ mod tests {
                 ComputeBudgetInstruction::request_heap_frame(MAX_HEAP_FRAME_BYTES),
             ],
             Ok(ComputeBudgetLimits {
-                compute_unit_limit: DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT,
+                compute_unit_limit: DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT
+                    + u32::try_from(solana_sdk::compute_budget::DEFAULT_COMPUTE_UNITS).unwrap(),
                 updated_heap_bytes: MAX_HEAP_FRAME_BYTES,
                 ..ComputeBudgetLimits::default()
             })
@@ -368,13 +361,13 @@ mod tests {
         test!(
             &[
                 Instruction::new_with_bincode(Pubkey::new_unique(), &0_u8, vec![]),
-                ComputeBudgetInstruction::set_compute_unit_limit(1),
+                ComputeBudgetInstruction::set_compute_unit_limit(cu_limit),
                 ComputeBudgetInstruction::request_heap_frame(MAX_HEAP_FRAME_BYTES),
                 ComputeBudgetInstruction::set_compute_unit_price(u64::MAX),
             ],
             Ok(ComputeBudgetLimits {
                 compute_unit_price: u64::MAX,
-                compute_unit_limit: 1,
+                compute_unit_limit: cu_limit,
                 updated_heap_bytes: MAX_HEAP_FRAME_BYTES,
                 ..ComputeBudgetLimits::default()
             })
@@ -409,6 +402,26 @@ mod tests {
     }
 
     #[test]
+    fn test_process_instructions_invalid_compute_unit_limit() {
+        // smaller than builtin ix
+        test!(
+            &[
+                ComputeBudgetInstruction::set_compute_unit_limit(1),
+                Instruction::new_with_bincode(Pubkey::new_unique(), &0_u8, vec![]),
+            ],
+            Err(TransactionError::InvalidComputeUnitLimitRequested)
+        );
+        // larger than MAX_COMPUTE_UNIT_LIMIT
+        test!(
+            &[
+                ComputeBudgetInstruction::set_compute_unit_limit(MAX_COMPUTE_UNIT_LIMIT + 1),
+                Instruction::new_with_bincode(Pubkey::new_unique(), &0_u8, vec![]),
+            ],
+            Err(TransactionError::InvalidComputeUnitLimitRequested)
+        );
+    }
+
+    #[test]
     fn test_process_loaded_accounts_data_size_limit_instruction() {
         test!(
             &[],
@@ -422,7 +435,8 @@ mod tests {
         // budget is set with data_size
         let data_size = 1;
         let expected_result = Ok(ComputeBudgetLimits {
-            compute_unit_limit: DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT,
+            compute_unit_limit: DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT
+                + u32::try_from(solana_sdk::compute_budget::DEFAULT_COMPUTE_UNITS).unwrap(),
             loaded_accounts_bytes: data_size,
             ..ComputeBudgetLimits::default()
         });
@@ -439,7 +453,8 @@ mod tests {
         // budget is set to max data size
         let data_size = MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES + 1;
         let expected_result = Ok(ComputeBudgetLimits {
-            compute_unit_limit: DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT,
+            compute_unit_limit: DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT
+                + u32::try_from(solana_sdk::compute_budget::DEFAULT_COMPUTE_UNITS).unwrap(),
             loaded_accounts_bytes: MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES,
             ..ComputeBudgetLimits::default()
         });
@@ -508,7 +523,8 @@ mod tests {
         assert_eq!(
             result,
             Ok(ComputeBudgetLimits {
-                compute_unit_limit: 2 * DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT,
+                compute_unit_limit: DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT
+                    + u32::try_from(solana_sdk::system_program::DEFAULT_COMPUTE_UNITS).unwrap(),
                 ..ComputeBudgetLimits::default()
             })
         );
