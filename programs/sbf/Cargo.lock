@@ -4784,7 +4784,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "solana-builtin-programs"
+name = "solana-builtin-cost-info"
 version = "2.0.0"
 dependencies = [
  "lazy_static",
@@ -4950,7 +4950,7 @@ dependencies = [
  "serde_derive",
  "solana-accounts-db",
  "solana-bloom",
- "solana-builtin-programs",
+ "solana-builtin-cost-info",
  "solana-client",
  "solana-cost-model",
  "solana-entry",
@@ -4999,7 +4999,7 @@ dependencies = [
  "lazy_static",
  "log",
  "rustc_version",
- "solana-builtin-programs",
+ "solana-builtin-cost-info",
  "solana-frozen-abi",
  "solana-frozen-abi-macro",
  "solana-metrics",
