@@ -1,4 +1,5 @@
 use {
+    solana_builtin_cost_info::BUILT_IN_INSTRUCTION_COSTS,
     solana_perf::packet::Packet,
     solana_runtime::compute_budget_details::{ComputeBudgetDetails, GetComputeBudgetDetails},
     solana_sdk::{
@@ -107,9 +108,7 @@ impl ImmutableDeserializedPacket {
     pub fn compute_unit_limit_above_static_builtins(&self) -> bool {
         let mut static_builtin_cost_sum: u64 = 0;
         for (program_id, _) in self.transaction.get_message().program_instructions_iter() {
-            if let Some(ix_cost) =
-                solana_builtin_cost_info::BUILT_IN_INSTRUCTION_COSTS.get(program_id)
-            {
+            if let Some(ix_cost) = BUILT_IN_INSTRUCTION_COSTS.get(program_id) {
                 saturating_add_assign!(static_builtin_cost_sum, *ix_cost);
             }
         }
