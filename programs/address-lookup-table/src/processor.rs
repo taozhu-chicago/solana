@@ -1,9 +1,8 @@
-pub use solana_sdk::address_lookup_table::instruction::DEFAULT_COMPUTE_UNITS;
 use {
     solana_program_runtime::{declare_process_instruction, ic_msg, invoke_context::InvokeContext},
     solana_sdk::{
         address_lookup_table::{
-            instruction::ProgramInstruction,
+            instruction::{ProgramInstruction, DEFAULT_COMPUTE_UNITS},
             program::{check_id, id},
             state::{
                 AddressLookupTable, LookupTableMeta, LookupTableStatus, ProgramState,

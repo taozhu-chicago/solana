@@ -1,4 +1,3 @@
-pub use solana_sdk::loader_v4::DEFAULT_COMPUTE_UNITS;
 use {
     solana_measure::measure::Measure,
     solana_program_runtime::{
@@ -23,7 +22,10 @@ use {
     solana_sdk::{
         entrypoint::SUCCESS,
         instruction::InstructionError,
-        loader_v4::{self, LoaderV4State, LoaderV4Status, DEPLOYMENT_COOLDOWN_IN_SLOTS},
+        loader_v4::{
+            self, LoaderV4State, LoaderV4Status, DEFAULT_COMPUTE_UNITS,
+            DEPLOYMENT_COOLDOWN_IN_SLOTS,
+        },
         loader_v4_instruction::LoaderV4Instruction,
         program_utils::limited_deserialize,
         pubkey::Pubkey,

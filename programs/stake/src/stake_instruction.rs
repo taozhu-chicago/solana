@@ -13,7 +13,7 @@ use {
         program_utils::limited_deserialize,
         pubkey::Pubkey,
         stake::{
-            instruction::{LockupArgs, StakeError, StakeInstruction},
+            instruction::{LockupArgs, StakeError, StakeInstruction, DEFAULT_COMPUTE_UNITS},
             program::id,
             state::{Authorized, Lockup},
         },
@@ -46,8 +46,6 @@ fn get_optional_pubkey<'a>(
         },
     )
 }
-
-pub use solana_sdk::stake::instruction::DEFAULT_COMPUTE_UNITS;
 
 declare_process_instruction!(Entrypoint, DEFAULT_COMPUTE_UNITS, |invoke_context| {
     let transaction_context = &invoke_context.transaction_context;

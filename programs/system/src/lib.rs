@@ -7,7 +7,7 @@ use solana_sdk::{
     account_utils::StateMut,
     nonce, system_program,
 };
-pub use system_program::{id, DEFAULT_COMPUTE_UNITS};
+pub use system_program::id;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum SystemAccountKind {

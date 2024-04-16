@@ -14,6 +14,7 @@ use {
         program_utils::limited_deserialize,
         pubkey::Pubkey,
         transaction_context::{BorrowedAccount, InstructionContext, TransactionContext},
+        vote::instruction::DEFAULT_COMPUTE_UNITS,
     },
     std::collections::HashSet,
 };
@@ -49,8 +50,6 @@ fn process_authorize_with_seed_instruction(
         &invoke_context.feature_set,
     )
 }
-
-pub use solana_sdk::vote::instruction::DEFAULT_COMPUTE_UNITS;
 
 declare_process_instruction!(Entrypoint, DEFAULT_COMPUTE_UNITS, |invoke_context| {
     let transaction_context = &invoke_context.transaction_context;

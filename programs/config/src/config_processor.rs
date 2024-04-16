@@ -1,13 +1,12 @@
 //! Config program
 
-pub use solana_sdk::config::program::DEFAULT_COMPUTE_UNITS;
 use {
     crate::ConfigKeys,
     bincode::deserialize,
     solana_program_runtime::{declare_process_instruction, ic_msg},
     solana_sdk::{
-        instruction::InstructionError, program_utils::limited_deserialize, pubkey::Pubkey,
-        transaction_context::IndexOfAccount,
+        config::program::DEFAULT_COMPUTE_UNITS, instruction::InstructionError,
+        program_utils::limited_deserialize, pubkey::Pubkey, transaction_context::IndexOfAccount,
     },
     std::collections::BTreeSet,
 };

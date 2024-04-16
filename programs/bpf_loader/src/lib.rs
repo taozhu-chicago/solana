@@ -4,11 +4,6 @@
 pub mod serialization;
 pub mod syscalls;
 
-pub use solana_sdk::{
-    bpf_loader::DEFAULT_COMPUTE_UNITS as DEFAULT_LOADER_COMPUTE_UNITS,
-    bpf_loader_deprecated::DEFAULT_COMPUTE_UNITS as DEPRECATED_LOADER_COMPUTE_UNITS,
-    bpf_loader_upgradeable::DEFAULT_COMPUTE_UNITS as UPGRADEABLE_LOADER_COMPUTE_UNITS,
-};
 use {
     solana_measure::measure::Measure,
     solana_program_runtime::{
@@ -408,17 +403,17 @@ pub fn process_instruction_inner(
         drop(program_account);
         let program_id = instruction_context.get_last_program_key(transaction_context)?;
         return if bpf_loader_upgradeable::check_id(program_id) {
-            invoke_context.consume_checked(UPGRADEABLE_LOADER_COMPUTE_UNITS)?;
+            invoke_context.consume_checked(bpf_loader_upgradeable::DEFAULT_COMPUTE_UNITS)?;
             process_loader_upgradeable_instruction(invoke_context)
         } else if bpf_loader::check_id(program_id) {
-            invoke_context.consume_checked(DEFAULT_LOADER_COMPUTE_UNITS)?;
+            invoke_context.consume_checked(bpf_loader::DEFAULT_COMPUTE_UNITS)?;
             ic_logger_msg!(
                 log_collector,
                 "BPF loader management instructions are no longer supported",
             );
             Err(InstructionError::UnsupportedProgramId)
         } else if bpf_loader_deprecated::check_id(program_id) {
-            invoke_context.consume_checked(DEPRECATED_LOADER_COMPUTE_UNITS)?;
+            invoke_context.consume_checked(bpf_loader_deprecated::DEFAULT_COMPUTE_UNITS)?;
             ic_logger_msg!(log_collector, "Deprecated loader is no longer supported");
             Err(InstructionError::UnsupportedProgramId)
         } else {

@@ -14,7 +14,7 @@ use {
         program_utils::limited_deserialize,
         pubkey::Pubkey,
         system_instruction::{SystemError, SystemInstruction, MAX_PERMITTED_DATA_LENGTH},
-        system_program,
+        system_program::{self, DEFAULT_COMPUTE_UNITS},
         transaction_context::{
             BorrowedAccount, IndexOfAccount, InstructionContext, TransactionContext,
         },
@@ -294,8 +294,6 @@ fn transfer_with_seed(
         instruction_context,
     )
 }
-
-pub use system_program::DEFAULT_COMPUTE_UNITS;
 
 declare_process_instruction!(Entrypoint, DEFAULT_COMPUTE_UNITS, |invoke_context| {
     let transaction_context = &invoke_context.transaction_context;
