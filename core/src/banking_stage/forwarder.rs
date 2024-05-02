@@ -59,21 +59,41 @@ impl Forwarder {
         banking_stage_stats: &BankingStageStats,
         tracer_packet_stats: &mut TracerPacketStats,
     ) {
+        let mut forward_packet_batches_by_accounts =
+            ForwardPacketBatchesByAccounts::new_with_default_batch_limits();
+        self.handle_forwarding_2(
+            unprocessed_transaction_storage,
+            &mut forward_packet_batches_by_accounts,
+            hold,
+            slot_metrics_tracker,
+            banking_stage_stats,
+            tracer_packet_stats,
+        );
+    }
+
+    pub fn handle_forwarding_2(
+        &self,
+        unprocessed_transaction_storage: &mut UnprocessedTransactionStorage,
+        forward_packet_batches_by_accounts: &mut ForwardPacketBatchesByAccounts,
+        hold: bool,
+        slot_metrics_tracker: &mut LeaderSlotMetricsTracker,
+        banking_stage_stats: &BankingStageStats,
+        tracer_packet_stats: &mut TracerPacketStats,
+    ) {
         let forward_option = unprocessed_transaction_storage.forward_option();
 
         // get current working bank from bank_forks, use it to sanitize transaction and
         // load all accounts from address loader;
         let current_bank = self.bank_forks.read().unwrap().working_bank();
 
-        let mut forward_packet_batches_by_accounts =
-            ForwardPacketBatchesByAccounts::new_with_default_batch_limits();
+        forward_packet_batches_by_accounts.reset();
 
         // sanitize and filter packets that are no longer valid (could be too old, a duplicate of something
         // already processed), then add to forwarding buffer.
         let filter_forwarding_result = unprocessed_transaction_storage
             .filter_forwardable_packets_and_add_batches(
                 current_bank,
-                &mut forward_packet_batches_by_accounts,
+                forward_packet_batches_by_accounts,
             );
         slot_metrics_tracker.increment_transactions_from_packets_us(
             filter_forwarding_result.total_packet_conversion_us,

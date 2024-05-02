@@ -54,6 +54,7 @@ use {
 pub mod committer;
 pub mod consumer;
 pub mod forwarder;
+pub mod forward_packet_batches_by_accounts;
 pub mod leader_slot_metrics;
 pub mod qos_service;
 pub mod unprocessed_packet_batches;
@@ -61,7 +62,6 @@ pub mod unprocessed_transaction_storage;
 
 mod consume_worker;
 mod decision_maker;
-mod forward_packet_batches_by_accounts;
 mod forward_worker;
 mod immutable_deserialized_packet;
 mod latest_unprocessed_votes;

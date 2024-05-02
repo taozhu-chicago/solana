@@ -45,6 +45,10 @@ impl ForwardBatch {
     pub fn is_empty(&self) -> bool {
         self.forwardable_packets.is_empty()
     }
+
+    pub fn reset(&mut self) {
+        self.forwardable_packets.clear();
+    }
 }
 
 /// To avoid forward queue being saturated by transactions for single hot account,
@@ -125,6 +129,14 @@ impl ForwardPacketBatchesByAccounts {
 
     pub fn iter_batches(&self) -> impl Iterator<Item = &ForwardBatch> {
         self.forward_batches.iter()
+    }
+
+    pub fn reset(&mut self) {
+        for forward_batch in self.forward_batches.iter_mut() {
+            forward_batch.reset();
+        }
+
+        self.cost_tracker.reset();
     }
 
     // Successfully added packet should be placed into the batch where no block/vote/account limits
