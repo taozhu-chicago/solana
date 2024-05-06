@@ -67,6 +67,8 @@ pub(crate) struct SchedulerController {
     worker_metrics: Vec<Arc<ConsumeWorkerMetrics>>,
     /// State for forwarding packets to the leader.
     forwarder: Forwarder,
+    /// forwarable packets are batched by account compute-unit limits
+    forwardable_packets: ForwardPacketBatchesByAccounts,
 }
 
 impl SchedulerController {
@@ -90,6 +92,7 @@ impl SchedulerController {
             timing_metrics: SchedulerTimingMetrics::default(),
             worker_metrics,
             forwarder,
+            forwardable_packets: ForwardPacketBatchesByAccounts::new_with_default_batch_limits(),
         }
     }
 
@@ -234,8 +237,7 @@ impl SchedulerController {
         let start = Instant::now();
         let bank = self.bank_forks.read().unwrap().working_bank();
         let feature_set = &bank.feature_set;
-        let mut forwardable_packets =
-            ForwardPacketBatchesByAccounts::new_with_default_batch_limits();
+        self.forwardable_packets.reset();
 
         // Pop from the container in chunks, filter using bank checks, then attempt to forward.
         // This doubles as a way to clean the queue as well as forwarding transactions.
@@ -284,7 +286,7 @@ impl SchedulerController {
 
                 // If not already forwarded and can be forwarded, add to forwardable packets.
                 if state.should_forward()
-                    && forwardable_packets.try_add_packet(
+                    && self.forwardable_packets.try_add_packet(
                         sanitized_transaction,
                         immutable_packet,
                         feature_set,
@@ -302,7 +304,7 @@ impl SchedulerController {
         }
 
         // Forward each batch of transactions
-        for batch in forwardable_packets.iter_batches() {
+        for batch in self.forwardable_packets.iter_batches() {
             let _ = self.forwarder.forward_packets(
                 &ForwardOption::ForwardTransaction,
                 batch.get_forwardable_packets(),
