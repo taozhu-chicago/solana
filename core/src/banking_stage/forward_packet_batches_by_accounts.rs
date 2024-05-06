@@ -148,14 +148,15 @@ impl ForwardPacketBatchesByAccounts {
         tx_cost: &TransactionCost,
         updated_costs: &UpdatedCosts,
     ) -> usize {
-        let batch_index_by_block_limit =
-            match updated_costs.updated_block_cost.checked_div(match tx_cost {
+        let Some(batch_index_by_block_limit) =
+            updated_costs.updated_block_cost.checked_div(match tx_cost {
                 TransactionCost::SimpleVote { .. } => self.batch_vote_limit,
                 TransactionCost::Transaction(_) => self.batch_block_limit,
-            }) {
-                Some(quotient) => quotient,
-                None => unreachable!("batch vote or block limit must not be zero"),
-            };
+            })
+        else {
+            unreachable!("batch vote limit or block limit must not be zero")
+        };
+
         let batch_index_by_account_limit =
             updated_costs.updated_costliest_account_cost / self.batch_account_limit;
 

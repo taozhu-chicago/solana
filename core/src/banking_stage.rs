@@ -624,6 +624,7 @@ impl BankingStage {
         Self { bank_thread_hdls }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn spawn_thread_local_multi_iterator_thread(
         id: u32,
         packet_receiver: BankingPacketReceiver,
