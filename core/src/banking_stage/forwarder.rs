@@ -54,26 +54,6 @@ impl Forwarder {
     pub fn handle_forwarding(
         &self,
         unprocessed_transaction_storage: &mut UnprocessedTransactionStorage,
-        hold: bool,
-        slot_metrics_tracker: &mut LeaderSlotMetricsTracker,
-        banking_stage_stats: &BankingStageStats,
-        tracer_packet_stats: &mut TracerPacketStats,
-    ) {
-        let mut forward_packet_batches_by_accounts =
-            ForwardPacketBatchesByAccounts::new_with_default_batch_limits();
-        self.handle_forwarding_2(
-            unprocessed_transaction_storage,
-            &mut forward_packet_batches_by_accounts,
-            hold,
-            slot_metrics_tracker,
-            banking_stage_stats,
-            tracer_packet_stats,
-        );
-    }
-
-    pub fn handle_forwarding_2(
-        &self,
-        unprocessed_transaction_storage: &mut UnprocessedTransactionStorage,
         forward_packet_batches_by_accounts: &mut ForwardPacketBatchesByAccounts,
         hold: bool,
         slot_metrics_tracker: &mut LeaderSlotMetricsTracker,
@@ -405,6 +385,7 @@ mod tests {
                     unprocessed_packet_batches,
                     ThreadType::Transactions,
                 ),
+                &mut ForwardPacketBatchesByAccounts::new_with_default_batch_limits(),
                 true,
                 &mut LeaderSlotMetricsTracker::new(0),
                 &stats,
@@ -482,6 +463,7 @@ mod tests {
             let stats = BankingStageStats::default();
             forwarder.handle_forwarding(
                 &mut unprocessed_packet_batches,
+                &mut ForwardPacketBatchesByAccounts::new_with_default_batch_limits(),
                 hold,
                 &mut LeaderSlotMetricsTracker::new(0),
                 &stats,

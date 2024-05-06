@@ -18,6 +18,7 @@ use {
     crate::{
         banking_stage::{
             consume_worker::ConsumeWorker,
+            forward_packet_batches_by_accounts::ForwardPacketBatchesByAccounts,
             packet_deserializer::PacketDeserializer,
             transaction_scheduler::{
                 prio_graph_scheduler::PrioGraphScheduler,
@@ -53,8 +54,8 @@ use {
 // Below modules are pub to allow use by banking_stage bench
 pub mod committer;
 pub mod consumer;
-pub mod forwarder;
 pub mod forward_packet_batches_by_accounts;
+pub mod forwarder;
 pub mod leader_slot_metrics;
 pub mod qos_service;
 pub mod unprocessed_packet_batches;
@@ -471,6 +472,9 @@ impl BankingStage {
                     data_budget.clone(),
                 );
 
+                let forward_packet_batches_by_accounts =
+                    ForwardPacketBatchesByAccounts::new_with_default_batch_limits();
+
                 Self::spawn_thread_local_multi_iterator_thread(
                     id,
                     packet_receiver,
@@ -481,6 +485,7 @@ impl BankingStage {
                     log_messages_bytes_limit,
                     forwarder,
                     unprocessed_transaction_storage,
+                    forward_packet_batches_by_accounts,
                 )
             })
             .collect();
@@ -545,6 +550,7 @@ impl BankingStage {
                     latest_unprocessed_votes.clone(),
                     vote_source,
                 ),
+                ForwardPacketBatchesByAccounts::new_with_default_batch_limits(),
             ));
         }
 
@@ -628,6 +634,7 @@ impl BankingStage {
         log_messages_bytes_limit: Option<usize>,
         forwarder: Forwarder,
         unprocessed_transaction_storage: UnprocessedTransactionStorage,
+        forward_packet_batches_by_accounts: ForwardPacketBatchesByAccounts,
     ) -> JoinHandle<()> {
         let mut packet_receiver = PacketReceiver::new(id, packet_receiver, bank_forks);
         let consumer = Consumer::new(
@@ -647,6 +654,7 @@ impl BankingStage {
                     &consumer,
                     id,
                     unprocessed_transaction_storage,
+                    forward_packet_batches_by_accounts,
                 )
             })
             .unwrap()
@@ -661,6 +669,7 @@ impl BankingStage {
         banking_stage_stats: &BankingStageStats,
         slot_metrics_tracker: &mut LeaderSlotMetricsTracker,
         tracer_packet_stats: &mut TracerPacketStats,
+        forward_packet_batches_by_accounts: &mut ForwardPacketBatchesByAccounts,
     ) {
         if unprocessed_transaction_storage.should_not_process() {
             return;
@@ -695,6 +704,7 @@ impl BankingStage {
             BufferedPacketsDecision::Forward => {
                 let ((), forward_us) = measure_us!(forwarder.handle_forwarding(
                     unprocessed_transaction_storage,
+                    forward_packet_batches_by_accounts,
                     false,
                     slot_metrics_tracker,
                     banking_stage_stats,
@@ -708,6 +718,7 @@ impl BankingStage {
             BufferedPacketsDecision::ForwardAndHold => {
                 let ((), forward_and_hold_us) = measure_us!(forwarder.handle_forwarding(
                     unprocessed_transaction_storage,
+                    forward_packet_batches_by_accounts,
                     true,
                     slot_metrics_tracker,
                     banking_stage_stats,
@@ -728,6 +739,7 @@ impl BankingStage {
         consumer: &Consumer,
         id: u32,
         mut unprocessed_transaction_storage: UnprocessedTransactionStorage,
+        mut forward_packet_batches_by_accounts: ForwardPacketBatchesByAccounts,
     ) {
         let mut banking_stage_stats = BankingStageStats::new(id);
         let mut tracer_packet_stats = TracerPacketStats::new(id);
@@ -748,6 +760,7 @@ impl BankingStage {
                         &banking_stage_stats,
                         &mut slot_metrics_tracker,
                         &mut tracer_packet_stats,
+                        &mut forward_packet_batches_by_accounts,
                     ),
                     "process_buffered_packets",
                 );

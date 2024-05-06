@@ -5,6 +5,7 @@ use {
     solana_client::connection_cache::ConnectionCache,
     solana_core::{
         banking_stage::{
+            forward_packet_batches_by_accounts::ForwardPacketBatchesByAccounts,
             forwarder::Forwarder,
             leader_slot_metrics::LeaderSlotMetricsTracker,
             unprocessed_packet_batches::{DeserializedPacket, UnprocessedPacketBatches},
@@ -36,6 +37,7 @@ struct BenchSetup {
     poh_service: PohService,
     forwarder: Forwarder,
     unprocessed_packet_batches: UnprocessedTransactionStorage,
+    forward_packet_batches_by_accounts: ForwardPacketBatchesByAccounts,
     tracker: LeaderSlotMetricsTracker,
     stats: BankingStageStats,
     tracer_stats: TracerPacketStats,
@@ -98,6 +100,8 @@ fn setup(num_packets: usize, contentious_transaction: bool) -> BenchSetup {
         UnprocessedPacketBatches::from_iter(packets, num_packets),
         ThreadType::Transactions,
     );
+    let forward_packet_batches_by_accounts =
+        ForwardPacketBatchesByAccounts::new_with_default_batch_limits();
 
     let connection_cache = ConnectionCache::new("connection_cache_test");
     // use a restrictive data budget to bench everything except actual sending data over
@@ -116,6 +120,7 @@ fn setup(num_packets: usize, contentious_transaction: bool) -> BenchSetup {
         poh_service,
         forwarder,
         unprocessed_packet_batches,
+        forward_packet_batches_by_accounts,
         tracker: LeaderSlotMetricsTracker::new(0),
         stats: BankingStageStats::default(),
         tracer_stats: TracerPacketStats::new(0),
@@ -130,6 +135,7 @@ fn bench_forwarder_handle_forwading_contentious_transaction(bencher: &mut Benche
         poh_service,
         forwarder,
         mut unprocessed_packet_batches,
+        mut forward_packet_batches_by_accounts,
         mut tracker,
         stats,
         mut tracer_stats,
@@ -140,6 +146,7 @@ fn bench_forwarder_handle_forwading_contentious_transaction(bencher: &mut Benche
     bencher.iter(|| {
         forwarder.handle_forwarding(
             &mut unprocessed_packet_batches,
+            &mut forward_packet_batches_by_accounts,
             hold,
             &mut tracker,
             &stats,
@@ -167,6 +174,7 @@ fn bench_forwarder_handle_forwading_parallel_transactions(bencher: &mut Bencher)
         poh_service,
         forwarder,
         mut unprocessed_packet_batches,
+        mut forward_packet_batches_by_accounts,
         mut tracker,
         stats,
         mut tracer_stats,
@@ -177,6 +185,7 @@ fn bench_forwarder_handle_forwading_parallel_transactions(bencher: &mut Bencher)
     bencher.iter(|| {
         forwarder.handle_forwarding(
             &mut unprocessed_packet_batches,
+            &mut forward_packet_batches_by_accounts,
             hold,
             &mut tracker,
             &stats,
