@@ -21,6 +21,9 @@ pub const MAX_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 /// The total accounts data a transaction can load is limited to 64MiB to not break
 /// anyone in Mainnet-beta today. It can be set by set_loaded_accounts_data_size_limit instruction
 pub const MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES: u32 = 64 * 1024 * 1024;
+/// The default accounts data size a transaction can load if sender didn't set specific
+/// value via set_loaded_accounts_data_size_limit
+pub const DEFAULT_LOADED_ACCOUNTS_DATA_SIZE_BYTES: u32 = 32 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ComputeBudgetLimits {
@@ -36,7 +39,7 @@ impl Default for ComputeBudgetLimits {
             updated_heap_bytes: u32::try_from(MIN_HEAP_FRAME_BYTES).unwrap(),
             compute_unit_limit: MAX_COMPUTE_UNIT_LIMIT,
             compute_unit_price: 0,
-            loaded_accounts_bytes: MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES,
+            loaded_accounts_bytes: DEFAULT_LOADED_ACCOUNTS_DATA_SIZE_BYTES,
         }
     }
 }
@@ -135,7 +138,7 @@ pub fn process_compute_budget_instructions<'a>(
     let compute_unit_price = updated_compute_unit_price.unwrap_or(0);
 
     let loaded_accounts_bytes = updated_loaded_accounts_data_size_limit
-        .unwrap_or(MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES)
+        .unwrap_or(DEFAULT_LOADED_ACCOUNTS_DATA_SIZE_BYTES)
         .min(MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES);
 
     Ok(ComputeBudgetLimits {
