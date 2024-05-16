@@ -1176,7 +1176,7 @@ mod tests {
 
         let result_default_limit = Ok(Some(
             NonZeroUsize::new(
-                usize::try_from(compute_budget_processor::MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES)
+                usize::try_from(compute_budget_processor::DEFAULT_LOADED_ACCOUNTS_DATA_SIZE_BYTES)
                     .unwrap(),
             )
             .unwrap(),

@@ -443,7 +443,7 @@ mod tests {
         // budget is set to default data size
         let expected_result = Ok(ComputeBudgetLimits {
             compute_unit_limit: DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT,
-            loaded_accounts_bytes: MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES,
+            loaded_accounts_bytes: DEFAULT_LOADED_ACCOUNTS_DATA_SIZE_BYTES,
             ..ComputeBudgetLimits::default()
         });
 
