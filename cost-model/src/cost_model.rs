@@ -615,7 +615,7 @@ mod tests {
             .unwrap();
         const DEFAULT_PAGE_COST: u64 = 8;
         let expected_loaded_accounts_data_size_cost =
-            solana_compute_budget::compute_budget_processor::MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES
+            solana_program_runtime::compute_budget_processor::DEFAULT_LOADED_ACCOUNTS_DATA_SIZE_BYTES
                 as u64
                 / ACCOUNT_DATA_COST_PAGE_SIZE
                 * DEFAULT_PAGE_COST;
