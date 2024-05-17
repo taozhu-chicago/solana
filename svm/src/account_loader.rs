@@ -146,8 +146,21 @@ pub(crate) fn load_accounts<CB: TransactionProcessingCallback>(
                     account_overrides,
                     loaded_programs,
                 ) {
-                    Ok(loaded_transaction) => loaded_transaction,
-                    Err(e) => return (Err(e), None),
+                    Ok((loaded_transaction, loaded_accounts_size)) => {
+                        if !tx.is_simple_vote_transaction() {
+                            println!(
+                                "==== tx {:?}, loaded_accounts_size {}, loaded_accounts_count {}",
+                                tx.signature(),
+                                loaded_accounts_size,
+                                loaded_transaction.accounts.len()
+                            );
+                        }
+                        loaded_transaction
+                    }
+                    Err(e) => {
+                        println!("==== tx {:?}, failed loading {:?}", tx.signature(), e);
+                        return (Err(e), None);
+                    }
                 };
 
                 // Update nonce with fee-subtracted accounts
@@ -181,7 +194,7 @@ fn load_transaction_accounts<CB: TransactionProcessingCallback>(
     error_counters: &mut TransactionErrorMetrics,
     account_overrides: Option<&AccountOverrides>,
     loaded_programs: &ProgramCacheForTxBatch,
-) -> Result<LoadedTransaction> {
+) -> Result<(LoadedTransaction, usize)> {
     let feature_set = callbacks.get_feature_set();
 
     // There is no way to predict what program will execute without an error
@@ -378,12 +391,15 @@ fn load_transaction_accounts<CB: TransactionProcessingCallback>(
         })
         .collect::<Result<Vec<Vec<IndexOfAccount>>>>()?;
 
-    Ok(LoadedTransaction {
-        accounts,
-        program_indices,
-        rent: tx_rent,
-        rent_debits,
-    })
+    Ok((
+        LoadedTransaction {
+            accounts,
+            program_indices,
+            rent: tx_rent,
+            rent_debits,
+        },
+        accumulated_accounts_data_size,
+    ))
 }
 
 /// Total accounts data a transaction can load is limited to
@@ -429,6 +445,12 @@ fn accumulate_and_check_loaded_account_data_size(
     error_counters: &mut TransactionErrorMetrics,
 ) -> Result<()> {
     if let Some(requested_loaded_accounts_data_size) = requested_loaded_accounts_data_size_limit {
+        println!(
+            "---- limit {} accumulated {} account_data_size {}",
+            requested_loaded_accounts_data_size.get(),
+            accumulated_loaded_accounts_data_size,
+            account_data_size
+        );
         saturating_add_assign!(*accumulated_loaded_accounts_data_size, account_data_size);
         if *accumulated_loaded_accounts_data_size > requested_loaded_accounts_data_size.get() {
             error_counters.max_loaded_accounts_data_size_exceeded += 1;
