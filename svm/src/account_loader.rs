@@ -47,6 +47,7 @@ pub struct LoadedTransaction {
     pub nonce: Option<NonceFull>,
     pub rent: TransactionRent,
     pub rent_debits: RentDebits,
+    pub loaded_accounts_data_size: usize,
 }
 
 impl LoadedTransaction {
@@ -380,6 +381,7 @@ fn load_transaction_accounts<CB: TransactionProcessingCallback>(
         nonce,
         rent: tx_rent,
         rent_debits,
+        loaded_accounts_data_size: accumulated_accounts_data_size,
     })
 }
 
@@ -1505,7 +1507,8 @@ mod tests {
                 program_indices: vec![vec![]],
                 nonce: None,
                 rent: 0,
-                rent_debits: RentDebits::default()
+                rent_debits: RentDebits::default(),
+                loaded_accounts_data_size: 0,
             }
         );
     }
@@ -1708,7 +1711,8 @@ mod tests {
                 nonce: None,
                 program_indices: vec![vec![1]],
                 rent: 0,
-                rent_debits: RentDebits::default()
+                rent_debits: RentDebits::default(),
+                loaded_accounts_data_size: 0,
             }
         );
     }
@@ -1900,7 +1904,8 @@ mod tests {
                 program_indices: vec![vec![2, 1]],
                 nonce: None,
                 rent: 0,
-                rent_debits: RentDebits::default()
+                rent_debits: RentDebits::default(),
+                loaded_accounts_data_size: 0,
             }
         );
     }
@@ -1992,7 +1997,8 @@ mod tests {
                 program_indices: vec![vec![3, 1], vec![3, 1]],
                 nonce: None,
                 rent: 0,
-                rent_debits: RentDebits::default()
+                rent_debits: RentDebits::default(),
+                loaded_accounts_data_size: 0,
             }
         );
     }
@@ -2149,7 +2155,8 @@ mod tests {
                     Some(mock_bank.accounts_map[&key2.pubkey()].clone())
                 )),
                 rent: 0,
-                rent_debits: RentDebits::default()
+                rent_debits: RentDebits::default(),
+                loaded_accounts_data_size: 0,
             }
         );
     }

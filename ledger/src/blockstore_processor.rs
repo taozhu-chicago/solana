@@ -179,6 +179,7 @@ pub fn execute_batch(
 
     let TransactionResults {
         fee_collection_results,
+        loaded_accounts_stats,
         execution_results,
         rent_debits,
         ..

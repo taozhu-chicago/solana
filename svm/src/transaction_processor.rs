@@ -989,6 +989,7 @@ mod tests {
             nonce: None,
             rent: 0,
             rent_debits: RentDebits::default(),
+            loaded_accounts_data_size: 32,
         };
 
         let mut record_config = ExecutionRecordingConfig {
@@ -1116,6 +1117,7 @@ mod tests {
             nonce: None,
             rent: 0,
             rent_debits: RentDebits::default(),
+            loaded_accounts_data_size: 0,
         };
 
         let record_config = ExecutionRecordingConfig::new_single_setting(false);
