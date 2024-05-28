@@ -4148,7 +4148,11 @@ impl Bank {
         );
 
         let loaded_accounts_stats = Self::collect_loaded_accounts_stats(loaded_txs);
-        assert_eq!(loaded_accounts_stats.len(), execution_results.len(), "loaded_account_stats and execution_results are not the same size");
+        assert_eq!(
+            loaded_accounts_stats.len(),
+            execution_results.len(),
+            "loaded_account_stats and execution_results are not the same size"
+        );
 
         TransactionResults {
             fee_collection_results,

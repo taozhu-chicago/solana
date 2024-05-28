@@ -507,6 +507,10 @@ impl Consumer {
             ..
         } = execute_and_commit_transactions_output;
 
+        // TAO TODO - this is also the chance to re-visit the "undo reserve early" changes, since
+        // default data size might grossly over reserve block space; efficiency means even more so
+        // in this case.
+
         // Costs of all transactions are added to the cost_tracker before processing.
         // To ensure accurate tracking of compute units, transactions that ultimately
         // were not included in the block should have their cost removed.
@@ -1547,7 +1551,7 @@ mod tests {
             let expected_block_cost = if !apply_cost_tracker_during_replay_enabled {
                 let actual_programs_execution_cost =
                     match commit_transactions_result.first().unwrap() {
-                        CommitTransactionDetails::Committed { compute_units } => *compute_units,
+                        CommitTransactionDetails::Committed { compute_units, .. } => *compute_units,
                         CommitTransactionDetails::NotCommitted => {
                             unreachable!()
                         }
