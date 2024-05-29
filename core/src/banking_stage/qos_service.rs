@@ -203,15 +203,13 @@ impl QosService {
                         loaded_accounts_data_size,
                     } = transaction_committed_details
                     {
-                        let loaded_accounts_data_size_cost =
-                            solana_sdk::fee::FeeStructure::calculate_memory_usage_cost(
-                                *loaded_accounts_data_size,
-                                solana_program_runtime::compute_budget::DEFAULT_HEAP_COST,
-                            );
                         cost_tracker.update_execution_cost(
                             tx_cost,
                             *compute_units,
-                            loaded_accounts_data_size_cost,
+                            CostModel::calculate_loaded_accounts_data_size_cost(
+                                *loaded_accounts_data_size,
+                                &bank.feature_set,
+                            ),
                         )
                     }
                 }
