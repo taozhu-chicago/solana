@@ -185,6 +185,14 @@ pub fn execute_batch(
         ..
     } = tx_results;
 
+    for tx_loaded_accounts_stats in loaded_accounts_stats.iter().flatten() {
+        timings
+            .execute_accounts_details
+            .increment_loaded_accounts_data_size_in_place(
+                tx_loaded_accounts_stats.loaded_accounts_data_size as u64,
+            );
+    }
+
     let executed_transactions = execution_results
         .iter()
         .zip(batch.sanitized_transactions())
@@ -939,6 +947,19 @@ pub fn process_blockstore_from_root(
     );
 
     info!("ledger processing timing: {:?}", timing);
+
+    // NOTE: print loaded_accounts_data_size histogram
+    info!("loaded accounts data size stats: 75-percentile {}, 90-percentile {}, 95-percentile {}, min {}, max {}, mean {}, stddev {}, entries {}, buckets-tot {}",
+                timing.execute_accounts_details.loaded_accounts_data_size_hist.percentile(75.0).unwrap_or(0),
+                timing.execute_accounts_details.loaded_accounts_data_size_hist.percentile(90.0).unwrap_or(0),
+                timing.execute_accounts_details.loaded_accounts_data_size_hist.percentile(95.0).unwrap_or(0),
+                timing.execute_accounts_details.loaded_accounts_data_size_hist.minimum().unwrap_or(0),
+                timing.execute_accounts_details.loaded_accounts_data_size_hist.maximum().unwrap_or(0),
+                timing.execute_accounts_details.loaded_accounts_data_size_hist.mean().unwrap_or(0),
+                timing.execute_accounts_details.loaded_accounts_data_size_hist.stddev().unwrap_or(0),
+                timing.execute_accounts_details.loaded_accounts_data_size_hist.entries(),
+                timing.execute_accounts_details.loaded_accounts_data_size_hist.buckets_total());
+
     {
         let bank_forks = bank_forks.read().unwrap();
         let mut bank_slots = bank_forks.banks().keys().copied().collect::<Vec<_>>();

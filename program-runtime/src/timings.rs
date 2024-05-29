@@ -281,6 +281,26 @@ eager_macro_rules! { $eager_1
                     .verify_callee_us,
                 i64
             ),
+            (
+                "execute_accounts_details_loaded_accounts_data_size_90pct",
+                $self.execute_accounts_details.loaded_accounts_data_size_hist.percentile(90.0).unwrap_or(0),
+                i64
+            ),
+            (
+                "execute_accounts_details_loaded_accounts_data_size_min",
+                $self.execute_accounts_details.loaded_accounts_data_size_hist.minimum().unwrap_or(0),
+                i64
+            ),
+            (
+                "execute_accounts_details_loaded_accounts_data_size_max",
+                $self.execute_accounts_details.loaded_accounts_data_size_hist.maximum().unwrap_or(0),
+                i64
+            ),
+            (
+                "execute_accounts_details_loaded_accounts_data_size_mean",
+                $self.execute_accounts_details.loaded_accounts_data_size_hist.mean().unwrap_or(0),
+                i64
+            ),
         }
     }
 }
@@ -290,6 +310,7 @@ pub struct ExecuteTimings {
     pub metrics: Metrics,
     pub details: ExecuteDetailsTimings,
     pub execute_accessories: ExecuteAccessoryTimings,
+    pub execute_accounts_details: ExecuteAccountsDetails,
 }
 
 impl ExecuteTimings {
@@ -300,6 +321,8 @@ impl ExecuteTimings {
         self.details.accumulate(&other.details);
         self.execute_accessories
             .accumulate(&other.execute_accessories);
+        self.execute_accounts_details
+            .accumulate(&other.execute_accounts_details);
     }
 
     pub fn saturating_add_in_place(&mut self, timing_type: ExecuteTimingType, value_to_add: u64) {
@@ -363,6 +386,7 @@ pub struct ExecuteDetailsTimings {
     pub execute_us: u64,
     pub deserialize_us: u64,
     pub get_or_create_executor_us: u64,
+    // TODO - move to ExecuteAccountsDetails
     pub changed_account_count: u64,
     pub total_account_count: u64,
     pub create_executor_register_syscalls_us: u64,
@@ -428,6 +452,24 @@ impl ExecuteDetailsTimings {
                 .saturating_add(compute_units_consumed);
             program_timing.count = program_timing.count.saturating_add(1);
         };
+    }
+}
+
+#[derive(Default, Debug)]
+pub struct ExecuteAccountsDetails {
+    pub loaded_accounts_data_size_hist: histogram::Histogram,
+}
+
+impl ExecuteAccountsDetails {
+    pub fn accumulate(&mut self, other: &ExecuteAccountsDetails) {
+        self.loaded_accounts_data_size_hist
+            .merge(&other.loaded_accounts_data_size_hist);
+    }
+
+    pub fn increment_loaded_accounts_data_size_in_place(&mut self, account_size: u64) {
+        self.loaded_accounts_data_size_hist
+            .increment(account_size)
+            .unwrap();
     }
 }
 
