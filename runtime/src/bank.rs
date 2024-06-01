@@ -97,6 +97,7 @@ use {
     solana_measure::{measure, measure::Measure, measure_us},
     solana_perf::perf_libs,
     solana_program_runtime::{
+        compute_budget_processor::{process_compute_budget_instructions, ComputeBudgetLimits},
         invoke_context::BuiltinFunctionWithContext,
         loaded_programs::ProgramCacheEntry,
         timings::{ExecuteTimingType, ExecuteTimings},
@@ -118,7 +119,8 @@ use {
         epoch_schedule::EpochSchedule,
         feature,
         feature_set::{
-            self, include_loaded_accounts_data_size_in_fee_calculation,
+            self, default_loaded_accounts_data_size_limit,
+            include_loaded_accounts_data_size_in_fee_calculation,
             remove_rounding_in_fee_calculation, reward_full_priority_fee, FeatureSet,
         },
         fee::{FeeDetails, FeeStructure},
@@ -3124,12 +3126,20 @@ impl Bank {
         message: &SanitizedMessage,
         lamports_per_signature: u64,
     ) -> u64 {
+        let use_default_loaded_accounts_data_size = self
+            .feature_set
+            .is_active(&default_loaded_accounts_data_size_limit::id());
         self.fee_structure().calculate_fee(
             message,
             lamports_per_signature,
-            &process_compute_budget_instructions(message.program_instructions_iter())
-                .unwrap_or_default()
-                .into(),
+            &process_compute_budget_instructions(
+                message.program_instructions_iter(),
+                use_default_loaded_accounts_data_size,
+            )
+            .unwrap_or_else(|_| {
+                ComputeBudgetLimits::new_with(use_default_loaded_accounts_data_size)
+            })
+            .into(),
             self.feature_set
                 .is_active(&include_loaded_accounts_data_size_in_fee_calculation::id()),
             self.feature_set

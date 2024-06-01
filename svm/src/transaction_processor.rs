@@ -422,6 +422,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
     ) -> transaction::Result<ValidatedTransactionDetails> {
         let compute_budget_limits = process_compute_budget_instructions(
             message.program_instructions_iter(),
+            feature_set.is_active(&feature_set::default_loaded_accounts_data_size_limit::id()),
         )
         .map_err(|err| {
             error_counters.invalid_compute_budget += 1;
