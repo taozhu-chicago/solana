@@ -97,7 +97,6 @@ use {
     solana_measure::{measure, measure::Measure, measure_us},
     solana_perf::perf_libs,
     solana_program_runtime::{
-        compute_budget_processor::{process_compute_budget_instructions, ComputeBudgetLimits},
         invoke_context::BuiltinFunctionWithContext,
         loaded_programs::ProgramCacheEntry,
         timings::{ExecuteTimingType, ExecuteTimings},

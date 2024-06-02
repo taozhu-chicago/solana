@@ -199,6 +199,7 @@ mod tests {
     use {
         super::*,
         crate::cost_model::CostModel,
+        solana_compute_budget::compute_budget_processor::ComputeBudgetLimits,
         solana_sdk::{
             feature_set::FeatureSet,
             fee::ACCOUNT_DATA_COST_PAGE_SIZE,
@@ -252,8 +253,7 @@ mod tests {
         // expected non-vote tx cost would include default loaded accounts size cost additionally
         const DEFAULT_PAGE_COST: u64 = 8;
         let expected_loaded_accounts_data_size_cost =
-            solana_program_runtime::compute_budget_processor::DEFAULT_LOADED_ACCOUNTS_DATA_SIZE_BYTES
-                as u64
+            ComputeBudgetLimits::get_default_loaded_accounts_data_size_bytes(true) as u64
                 / ACCOUNT_DATA_COST_PAGE_SIZE
                 * DEFAULT_PAGE_COST;
         let min_none_vote_cost = SIMPLE_VOTE_USAGE_COST + expected_loaded_accounts_data_size_cost;

@@ -139,6 +139,7 @@ mod tests {
         },
         solana_sdk::{
             compute_budget::ComputeBudgetInstruction,
+            feature_set::FeatureSet,
             instruction::Instruction,
             message::Message,
             reserved_account_keys::ReservedAccountKeys,
@@ -221,10 +222,15 @@ mod tests {
             svt: SanitizedVersionedTransaction,
             is_simple_vote: Option<bool>,
         ) -> bool {
-            RuntimeTransaction::<SanitizedVersionedMessage>::try_from(svt, None, is_simple_vote)
-                .unwrap()
-                .meta
-                .is_simple_vote_tx
+            RuntimeTransaction::<SanitizedVersionedMessage>::try_from(
+                svt,
+                None,
+                is_simple_vote,
+                &FeatureSet::default(),
+            )
+            .unwrap()
+            .meta
+            .is_simple_vote_tx
         }
 
         assert!(!get_is_simple_vote(
@@ -257,6 +263,7 @@ mod tests {
                 non_vote_sanitized_versioned_transaction(),
                 Some(hash),
                 None,
+                &FeatureSet::default(),
             )
             .unwrap();
 
@@ -291,6 +298,7 @@ mod tests {
                 .to_sanitized_versioned_transaction(),
             Some(hash),
             None,
+            &FeatureSet::default(),
         )
         .unwrap();
 

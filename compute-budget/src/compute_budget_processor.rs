@@ -189,6 +189,17 @@ mod tests {
         },
     };
 
+    impl Default for ComputeBudgetLimits {
+        fn default() -> Self {
+            ComputeBudgetLimits {
+                updated_heap_bytes: u32::try_from(MIN_HEAP_FRAME_BYTES).unwrap(),
+                compute_unit_limit: MAX_COMPUTE_UNIT_LIMIT,
+                compute_unit_price: 0,
+                loaded_accounts_bytes: DEFAULT_LOADED_ACCOUNTS_DATA_SIZE_BYTES,
+            }
+        }
+    }
+
     macro_rules! test {
         ( $instructions: expr, $expected_result: expr, $use_default_loaded_accounts_data_szie: expr) => {
             let payer_keypair = Keypair::new();
@@ -468,9 +479,10 @@ mod tests {
         for use_default_loaded_accounts_data_size in [true, false] {
             let expected_result = Ok(ComputeBudgetLimits {
                 compute_unit_limit: DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT,
-                loaded_accounts_bytes: Self::get_default_loaded_accounts_data_size_bytes(
-                    use_default_loaded_accounts_data_size,
-                ),
+                loaded_accounts_bytes:
+                    ComputeBudgetLimits::get_default_loaded_accounts_data_size_bytes(
+                        use_default_loaded_accounts_data_size,
+                    ),
                 ..ComputeBudgetLimits::default()
             });
 
@@ -515,18 +527,26 @@ mod tests {
                 Hash::default(),
             ));
 
-        let result =
-            process_compute_budget_instructions(transaction.message().program_instructions_iter());
+        for use_default_loaded_accounts_data_size in [true, false] {
+            let result = process_compute_budget_instructions(
+                transaction.message().program_instructions_iter(),
+                use_default_loaded_accounts_data_size,
+            );
 
-        // assert process_instructions will be successful with default,
-        // and the default compute_unit_limit is 2 times default: one for bpf ix, one for
-        // builtin ix.
-        assert_eq!(
-            result,
-            Ok(ComputeBudgetLimits {
-                compute_unit_limit: 2 * DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT,
-                ..ComputeBudgetLimits::default()
-            })
-        );
+            // assert process_instructions will be successful with default,
+            // and the default compute_unit_limit is 2 times default: one for bpf ix, one for
+            // builtin ix.
+            assert_eq!(
+                result,
+                Ok(ComputeBudgetLimits {
+                    compute_unit_limit: 2 * DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT,
+                    loaded_accounts_bytes:
+                        ComputeBudgetLimits::get_default_loaded_accounts_data_size_bytes(
+                            use_default_loaded_accounts_data_size
+                        ),
+                    ..ComputeBudgetLimits::default()
+                })
+            );
+        }
     }
 }
