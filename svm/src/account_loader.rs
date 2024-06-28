@@ -204,7 +204,7 @@ fn load_transaction_accounts<CB: TransactionProcessingCallback>(
 
     let requested_loaded_accounts_data_size_limit = get_requested_loaded_accounts_data_size_limit(
         message,
-        feature_set.is_active(&default_loaded_accounts_data_size_limit::id()),
+        feature_set.is_active(&feature_set::default_loaded_accounts_data_size_limit::id()),
     )?;
     let mut accumulated_accounts_data_size: usize = 0;
 

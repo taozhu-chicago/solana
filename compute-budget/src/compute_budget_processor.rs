@@ -34,6 +34,14 @@ pub struct ComputeBudgetLimits {
     pub loaded_accounts_bytes: u32,
 }
 
+// Default is only usable from dev context (ie. tests, benches etc)
+#[cfg(any(test, feature = "dev-context-only-utils"))]
+impl Default for ComputeBudgetLimits {
+    fn default() -> Self {
+        Self::new_with(false)
+    }
+}
+
 impl ComputeBudgetLimits {
     // default constructor with feature gate
     pub fn new_with(use_default_loaded_accounts_data_size: bool) -> Self {
@@ -188,17 +196,6 @@ mod tests {
             transaction::{SanitizedTransaction, Transaction},
         },
     };
-
-    impl Default for ComputeBudgetLimits {
-        fn default() -> Self {
-            ComputeBudgetLimits {
-                updated_heap_bytes: u32::try_from(MIN_HEAP_FRAME_BYTES).unwrap(),
-                compute_unit_limit: MAX_COMPUTE_UNIT_LIMIT,
-                compute_unit_price: 0,
-                loaded_accounts_bytes: DEFAULT_LOADED_ACCOUNTS_DATA_SIZE_BYTES,
-            }
-        }
-    }
 
     macro_rules! test {
         ( $instructions: expr, $expected_result: expr, $use_default_loaded_accounts_data_szie: expr) => {
