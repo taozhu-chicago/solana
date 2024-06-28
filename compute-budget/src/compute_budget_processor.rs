@@ -198,7 +198,7 @@ mod tests {
     };
 
     macro_rules! test {
-        ( $instructions: expr, $expected_result: expr, $use_default_loaded_accounts_data_szie: expr) => {
+        ( $instructions: expr, $expected_result: expr, $use_default_loaded_accounts_data_size: expr) => {
             let payer_keypair = Keypair::new();
             let tx = SanitizedTransaction::from_transaction_for_tests(Transaction::new(
                 &[&payer_keypair],
@@ -207,7 +207,7 @@ mod tests {
             ));
             let result = process_compute_budget_instructions(
                 tx.message().program_instructions_iter(),
-                $use_default_loaded_accounts_data_szie,
+                $use_default_loaded_accounts_data_size,
             );
             assert_eq!($expected_result, result);
         };

@@ -904,7 +904,6 @@ mod tests {
 
     #[test]
     fn test_get_requested_loaded_accounts_data_size_limit() {
-        // an private helper function
         fn test(
             instructions: &[solana_sdk::instruction::Instruction],
             expected_result: &Result<Option<NonZeroUsize>>,

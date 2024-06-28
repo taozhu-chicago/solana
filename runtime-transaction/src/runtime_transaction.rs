@@ -15,7 +15,7 @@ use {
         process_compute_budget_instructions, ComputeBudgetLimits,
     },
     solana_sdk::{
-        feature_set::{self, default_loaded_accounts_data_size_limit},
+        feature_set::{default_loaded_accounts_data_size_limit, FeatureSet},
         hash::Hash,
         message::{AddressLoader, SanitizedMessage, SanitizedVersionedMessage},
         pubkey::Pubkey,
@@ -72,7 +72,7 @@ impl RuntimeTransaction<SanitizedVersionedMessage> {
         sanitized_versioned_tx: SanitizedVersionedTransaction,
         message_hash: Option<Hash>,
         is_simple_vote_tx: Option<bool>,
-        feature_set: &feature_set::FeatureSet,
+        feature_set: &FeatureSet,
     ) -> Result<Self> {
         let mut meta = TransactionMeta::default();
         meta.set_is_simple_vote_tx(
