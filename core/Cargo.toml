@@ -49,6 +49,7 @@ solana-bloom = { workspace = true }
 solana-builtins-default-costs = { workspace = true }
 solana-client = { workspace = true }
 solana-compute-budget = { workspace = true }
+solana-compute-budget-processor = { workspace = true }
 solana-connection-cache = { workspace = true }
 solana-cost-model = { workspace = true }
 solana-entry = { workspace = true }

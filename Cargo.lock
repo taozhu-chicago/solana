@@ -6028,6 +6028,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-compute-budget-processor"
+version = "2.1.0"
+dependencies = [
+ "itertools 0.12.1",
+ "log",
+ "rustc_version 0.4.0",
+ "solana-builtins-default-costs",
+ "solana-compute-budget",
+ "solana-frozen-abi",
+ "solana-logger",
+ "solana-sdk",
+ "static_assertions",
+ "test-case",
+]
+
+[[package]]
 name = "solana-compute-budget-program"
 version = "2.1.0"
 dependencies = [
@@ -6117,6 +6133,7 @@ dependencies = [
  "solana-builtins-default-costs",
  "solana-client",
  "solana-compute-budget",
+ "solana-compute-budget-processor",
  "solana-connection-cache",
  "solana-core",
  "solana-cost-model",
@@ -6178,6 +6195,7 @@ dependencies = [
  "rustc_version 0.4.0",
  "solana-builtins-default-costs",
  "solana-compute-budget",
+ "solana-compute-budget-processor",
  "solana-frozen-abi",
  "solana-frozen-abi-macro",
  "solana-logger",
@@ -7261,6 +7279,7 @@ dependencies = [
  "solana-bpf-loader-program",
  "solana-bucket-map",
  "solana-compute-budget",
+ "solana-compute-budget-processor",
  "solana-compute-budget-program",
  "solana-config-program",
  "solana-cost-model",
@@ -7308,6 +7327,7 @@ dependencies = [
  "rand 0.8.5",
  "rustc_version 0.4.0",
  "solana-compute-budget",
+ "solana-compute-budget-processor",
  "solana-program",
  "solana-sdk",
  "thiserror",
@@ -7590,6 +7610,7 @@ dependencies = [
  "serde_derive",
  "solana-bpf-loader-program",
  "solana-compute-budget",
+ "solana-compute-budget-processor",
  "solana-compute-budget-program",
  "solana-frozen-abi",
  "solana-frozen-abi-macro",
