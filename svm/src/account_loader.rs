@@ -293,6 +293,7 @@ fn load_transaction_accounts<CB: TransactionProcessingCallback>(
         })
         .collect::<Result<Vec<_>>>()?;
 
+
     let builtins_start_index = accounts.len();
     let program_indices = message
         .instructions()
@@ -440,7 +441,7 @@ mod tests {
         solana_program_runtime::loaded_programs::{ProgramCacheEntry, ProgramCacheForTxBatch},
         solana_sdk::{
             account::{Account, AccountSharedData, ReadableAccount, WritableAccount},
-            bpf_loader_upgradeable,
+            bpf_loader_upgradeable::{self, UpgradeableLoaderState},
             epoch_schedule::EpochSchedule,
             feature_set::FeatureSet,
             hash::Hash,
@@ -1565,7 +1566,6 @@ mod tests {
         mock_bank
             .accounts_map
             .insert(key2.pubkey(), fee_payer_account_data.clone());
-
         let mut account_data = AccountSharedData::default();
         account_data.set_executable(true);
         account_data.set_owner(native_loader::id());
@@ -1707,6 +1707,106 @@ mod tests {
                 rent: 0,
                 rent_debits: RentDebits::default(),
                 loaded_accounts_data_size: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn test_load_transaction_accounts_cpi_loader_v3() {
+        let key0 = Keypair::new();
+        let key1 = Keypair::new();
+        let key2 = Keypair::new();
+
+        let message = Message {
+            account_keys: vec![key0.pubkey(), key1.pubkey()],
+            header: MessageHeader::default(),
+            instructions: vec![
+                CompiledInstruction {
+                    program_id_index: 1,
+                    accounts: vec![0],
+                    data: vec![],
+                },
+            ],
+            recent_blockhash: Hash::default(),
+        };
+
+        let sanitized_message = new_unchecked_sanitized_message(message);
+        let mut mock_bank = TestCallbacks::default();
+
+        // fee payer account
+        let mut fee_payer_account_data = AccountSharedData::default();
+        fee_payer_account_data.set_lamports(200);
+        mock_bank
+            .accounts_map
+            .insert(key0.pubkey(), fee_payer_account_data.clone());
+
+        // key1, proxy account to cpi to loader v3
+        let mut instruction_1_account_data = AccountSharedData::default();
+        instruction_1_account_data.set_executable(true);
+        instruction_1_account_data.set_owner(bpf_loader_upgradeable::id());
+        mock_bank.accounts_map.insert(key1.pubkey(), instruction_1_account_data.clone());
+
+        // loader v3 account
+        let mut loader_account_data = AccountSharedData::default();
+        loader_account_data.set_owner(native_loader::id());
+        loader_account_data.set_executable(true);
+        let state = UpgradeableLoaderState::Program {
+            programdata_address: key2.pubkey(),
+        };
+        loader_account_data.set_data(bincode::serialize(&state).unwrap());
+        mock_bank.accounts_map.insert(bpf_loader_upgradeable::id(), loader_account_data.clone());
+
+        // loader v3 programdata account
+        let mut programdata_account_data = AccountSharedData::default();
+        let state = UpgradeableLoaderState::ProgramData {
+            slot: 9,
+            upgrade_authority_address: None,
+        };
+        programdata_account_data.set_data(bincode::serialize(&state).unwrap());
+        mock_bank.accounts_map.insert(key2.pubkey(), programdata_account_data.clone());
+
+        let mut error_metrics = TransactionErrorMetrics::default();
+        // program cache is empty
+        let loaded_programs = ProgramCacheForTxBatch::default();
+
+        let sanitized_transaction = SanitizedTransaction::new_for_tests(
+            sanitized_message,
+            vec![Signature::new_unique()],
+            false,
+        );
+        let result = load_transaction_accounts(
+            &mock_bank,
+            sanitized_transaction.message(),
+            ValidatedTransactionDetails {
+                fee_payer_account: fee_payer_account_data.clone(),
+                ..ValidatedTransactionDetails::default()
+            },
+            &mut error_metrics,
+            None,
+            &FeatureSet::default(),
+            &RentCollector::default(),
+            &loaded_programs,
+        );
+
+        // loaded accounts data size should include both loader-v3 program account and programdata
+        // account
+        let expected_loaded_accounts_data_size = loader_account_data.data().len() + programdata_account_data.data().len();
+
+        assert_eq!(
+            result.unwrap(),
+            LoadedTransaction {
+                accounts: vec![
+                    (key0.pubkey(), fee_payer_account_data),
+                    (key1.pubkey(), instruction_1_account_data),
+                    (bpf_loader_upgradeable::id(), loader_account_data.clone()),
+                ],
+                program_indices: vec![vec![1]],
+                fee_details: FeeDetails::default(),
+                rollback_accounts: RollbackAccounts::default(),
+                compute_budget_limits: ComputeBudgetLimits::default(),
+                rent: 0,
+                rent_debits: RentDebits::default(),
+                loaded_accounts_data_size: expected_loaded_accounts_data_size,
             }
         );
     }
