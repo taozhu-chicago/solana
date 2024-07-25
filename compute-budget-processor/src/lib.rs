@@ -1,108 +1,197 @@
-//! Solana compute budget instruction processor
 #![cfg_attr(RUSTC_WITH_SPECIALIZATION, feature(min_specialization))]
-
 use {
+    solana_builtins_default_costs::BUILTIN_INSTRUCTION_COSTS,
     solana_compute_budget::compute_budget_limits::*,
     solana_sdk::{
         borsh1::try_from_slice_unchecked,
         compute_budget::{self, ComputeBudgetInstruction},
         instruction::{CompiledInstruction, InstructionError},
         pubkey::Pubkey,
+        saturating_add_assign,
         transaction::TransactionError,
     },
+    std::num::NonZeroU32,
 };
 
-/// Processing compute_budget could be part of tx sanitizing, failed to process
-/// these instructions will drop the transaction eventually without execution,
-/// may as well fail it early.
-/// If succeeded, the transaction's specific limits/requests (could be default)
-/// are retrieved and returned,
-pub fn process_compute_budget_instructions<'a>(
+/// Information about instructions gathered after scan over transaction;
+/// These are "raw" information that suitable for cache and reuse.
+#[derive(Default, Debug)]
+pub struct InstructionDetails {
+    // compute-budget instruction details:
+    // the first field in tuple is instruction index, second field is the unsanitized value set by user
+    requested_compute_unit_limit: Option<(u8, u32)>,
+    requested_compute_unit_price: Option<(u8, u64)>,
+    requested_heap_size: Option<(u8, u32)>,
+    requested_loaded_accounts_data_size_limit: Option<(u8, u32)>,
+    // builtin instruction details
+    sum_builtin_compute_units: u32,
+    count_builtin_instructions: u32,
+    count_non_builtin_instructions: u32,
+    count_compute_budget_instructions: u32,
+    // NOTE: additional instruction details goes here
+    // for example: signature_details here (SanitizedMessage::get_signature_details())
+}
+
+impl InstructionDetails {
+    pub fn sanitize_and_convert_to_compute_budget_limits(
+        &self,
+    ) -> Result<ComputeBudgetLimits, TransactionError> {
+        // Sanitize requested heap size
+        let updated_heap_bytes = self
+            .requested_heap_size
+            .map_or(MIN_HEAP_FRAME_BYTES, |(_index, requested_heap_size)| {
+                requested_heap_size
+            })
+            .min(MAX_HEAP_FRAME_BYTES);
+
+        // Calculate compute unit limit
+        let compute_unit_limit = self
+            .requested_compute_unit_limit
+            .map_or_else(
+                || {
+                    // NOTE: to match current behavior of:
+                    // num_non_compute_budget_instructions * DEFAULT
+                    self.count_builtin_instructions
+                        .saturating_add(self.count_non_builtin_instructions)
+                        .saturating_sub(self.count_compute_budget_instructions)
+                        .saturating_mul(DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT)
+                },
+                |(_index, requested_compute_unit_limit)| requested_compute_unit_limit,
+            )
+            .min(MAX_COMPUTE_UNIT_LIMIT);
+
+        let compute_unit_price = self
+            .requested_compute_unit_price
+            .map_or(0, |(_index, requested_compute_unit_price)| {
+                requested_compute_unit_price
+            });
+
+        let loaded_accounts_bytes =
+            if let Some((_index, requested_loaded_accounts_data_size_limit)) =
+                self.requested_loaded_accounts_data_size_limit
+            {
+                NonZeroU32::new(requested_loaded_accounts_data_size_limit)
+                    .ok_or(TransactionError::InvalidLoadedAccountsDataSizeLimit)?
+            } else {
+                MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES
+            }
+            .min(MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES);
+
+        Ok(ComputeBudgetLimits {
+            updated_heap_bytes,
+            compute_unit_limit,
+            compute_unit_price,
+            loaded_accounts_bytes,
+        })
+    }
+}
+
+/// Iterate instructions for unsanitized user inputs;
+/// Returns TransactionError if instructions were invalid or syntax error, otherwise
+/// returns `InstructionDetails` that is deterministic per transaction,
+/// therefore is safe for cache and reuse. Cached `InstructionDetails`
+/// can be sanitized and converted into `ComputeBudgetLimits`, for example.
+pub fn get_instruction_details<'a>(
     instructions: impl Iterator<Item = (&'a Pubkey, &'a CompiledInstruction)>,
-) -> Result<ComputeBudgetLimits, TransactionError> {
-    let mut num_non_compute_budget_instructions: u32 = 0;
-    let mut updated_compute_unit_limit = None;
-    let mut updated_compute_unit_price = None;
-    let mut requested_heap_size = None;
-    let mut updated_loaded_accounts_data_size_limit = None;
+) -> Result<InstructionDetails, TransactionError> {
+    let mut instruction_details = InstructionDetails::default();
 
     for (i, (program_id, instruction)) in instructions.enumerate() {
-        if compute_budget::check_id(program_id) {
-            let invalid_instruction_data_error = TransactionError::InstructionError(
-                i as u8,
-                InstructionError::InvalidInstructionData,
-            );
-            let duplicate_instruction_error = TransactionError::DuplicateInstruction(i as u8);
+        parse_compute_budget_instructions(
+            &mut instruction_details,
+            i as u8,
+            program_id,
+            instruction,
+        )?;
+        parse_builtin_instructions(&mut instruction_details, i as u8, program_id, instruction)?;
+    }
 
-            match try_from_slice_unchecked(&instruction.data) {
-                Ok(ComputeBudgetInstruction::RequestHeapFrame(bytes)) => {
-                    if requested_heap_size.is_some() {
-                        return Err(duplicate_instruction_error);
-                    }
-                    if sanitize_requested_heap_size(bytes) {
-                        requested_heap_size = Some(bytes);
-                    } else {
-                        return Err(invalid_instruction_data_error);
-                    }
+    Ok(instruction_details)
+}
+
+fn parse_builtin_instructions<'a>(
+    instruction_details: &mut InstructionDetails,
+    _index: u8,
+    program_id: &'a Pubkey,
+    _instruction: &'a CompiledInstruction,
+) -> Result<(), TransactionError> {
+    if let Some(builtin_ix_cost) = BUILTIN_INSTRUCTION_COSTS.get(program_id) {
+        saturating_add_assign!(
+            instruction_details.sum_builtin_compute_units,
+            u32::try_from(*builtin_ix_cost).unwrap()
+        );
+        saturating_add_assign!(instruction_details.count_builtin_instructions, 1);
+    } else {
+        saturating_add_assign!(instruction_details.count_non_builtin_instructions, 1);
+    }
+
+    Ok(())
+}
+
+fn parse_compute_budget_instructions<'a>(
+    instruction_details: &mut InstructionDetails,
+    index: u8,
+    program_id: &'a Pubkey,
+    instruction: &'a CompiledInstruction,
+) -> Result<(), TransactionError> {
+    if compute_budget::check_id(program_id) {
+        saturating_add_assign!(instruction_details.count_compute_budget_instructions, 1);
+
+        let invalid_instruction_data_error =
+            TransactionError::InstructionError(index, InstructionError::InvalidInstructionData);
+        let duplicate_instruction_error = TransactionError::DuplicateInstruction(index);
+
+        match try_from_slice_unchecked(&instruction.data) {
+            Ok(ComputeBudgetInstruction::RequestHeapFrame(bytes)) => {
+                if instruction_details.requested_heap_size.is_some() {
+                    return Err(duplicate_instruction_error);
                 }
-                Ok(ComputeBudgetInstruction::SetComputeUnitLimit(compute_unit_limit)) => {
-                    if updated_compute_unit_limit.is_some() {
-                        return Err(duplicate_instruction_error);
-                    }
-                    updated_compute_unit_limit = Some(compute_unit_limit);
+                if sanitize_requested_heap_size(bytes) {
+                    instruction_details.requested_heap_size = Some((index, bytes));
+                } else {
+                    return Err(invalid_instruction_data_error);
                 }
-                Ok(ComputeBudgetInstruction::SetComputeUnitPrice(micro_lamports)) => {
-                    if updated_compute_unit_price.is_some() {
-                        return Err(duplicate_instruction_error);
-                    }
-                    updated_compute_unit_price = Some(micro_lamports);
-                }
-                Ok(ComputeBudgetInstruction::SetLoadedAccountsDataSizeLimit(bytes)) => {
-                    if updated_loaded_accounts_data_size_limit.is_some() {
-                        return Err(duplicate_instruction_error);
-                    }
-                    updated_loaded_accounts_data_size_limit = Some(
-                        NonZeroU32::new(bytes)
-                            .ok_or(TransactionError::InvalidLoadedAccountsDataSizeLimit)?,
-                    );
-                }
-                _ => return Err(invalid_instruction_data_error),
             }
-        } else {
-            // only include non-request instructions in default max calc
-            num_non_compute_budget_instructions =
-                num_non_compute_budget_instructions.saturating_add(1);
+            Ok(ComputeBudgetInstruction::SetComputeUnitLimit(compute_unit_limit)) => {
+                if instruction_details.requested_compute_unit_limit.is_some() {
+                    return Err(duplicate_instruction_error);
+                }
+                instruction_details.requested_compute_unit_limit =
+                    Some((index, compute_unit_limit));
+            }
+            Ok(ComputeBudgetInstruction::SetComputeUnitPrice(micro_lamports)) => {
+                if instruction_details.requested_compute_unit_price.is_some() {
+                    return Err(duplicate_instruction_error);
+                }
+                instruction_details.requested_compute_unit_price = Some((index, micro_lamports));
+            }
+            Ok(ComputeBudgetInstruction::SetLoadedAccountsDataSizeLimit(bytes)) => {
+                if instruction_details
+                    .requested_loaded_accounts_data_size_limit
+                    .is_some()
+                {
+                    return Err(duplicate_instruction_error);
+                }
+                instruction_details.requested_loaded_accounts_data_size_limit =
+                    Some((index, bytes));
+            }
+            _ => return Err(invalid_instruction_data_error),
         }
     }
 
-    // sanitize limits
-    let updated_heap_bytes = requested_heap_size
-        .unwrap_or(MIN_HEAP_FRAME_BYTES) // loader's default heap_size
-        .min(MAX_HEAP_FRAME_BYTES);
-
-    let compute_unit_limit = updated_compute_unit_limit
-        .unwrap_or_else(|| {
-            num_non_compute_budget_instructions
-                .saturating_mul(DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT)
-        })
-        .min(MAX_COMPUTE_UNIT_LIMIT);
-
-    let compute_unit_price = updated_compute_unit_price.unwrap_or(0);
-
-    let loaded_accounts_bytes = updated_loaded_accounts_data_size_limit
-        .unwrap_or(MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES)
-        .min(MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES);
-
-    Ok(ComputeBudgetLimits {
-        updated_heap_bytes,
-        compute_unit_limit,
-        compute_unit_price,
-        loaded_accounts_bytes,
-    })
+    Ok(())
 }
 
 fn sanitize_requested_heap_size(bytes: u32) -> bool {
     (MIN_HEAP_FRAME_BYTES..=MAX_HEAP_FRAME_BYTES).contains(&bytes) && bytes % 1024 == 0
+}
+
+// NOTE - temp adaptor to keep compiler happy for the time being
+// all call sites will be updated with this two-step calls, using actual feature-set
+pub fn process_compute_budget_instructions<'a>(
+    instructions: impl Iterator<Item = (&'a Pubkey, &'a CompiledInstruction)>,
+) -> Result<ComputeBudgetLimits, TransactionError> {
+    get_instruction_details(instructions)?.sanitize_and_convert_to_compute_budget_limits()
 }
 
 #[cfg(test)]
