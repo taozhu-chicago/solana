@@ -10,6 +10,7 @@ use {
         saturating_add_assign,
         transaction::TransactionError,
     },
+    solana_svm_transaction::instruction::SVMInstruction,
     std::num::NonZeroU32,
 };
 
@@ -92,7 +93,7 @@ impl InstructionDetails {
 /// therefore is safe for cache and reuse. Cached `InstructionDetails`
 /// can be sanitized and converted into `ComputeBudgetLimits`, for example.
 pub fn get_instruction_details<'a>(
-    instructions: impl Iterator<Item = (&'a Pubkey, &'a CompiledInstruction)>,
+    instructions: impl Iterator<Item = (&'a Pubkey, SVMInstruction<'a>)>,
 ) -> Result<InstructionDetails, TransactionError> {
     let mut instruction_details = InstructionDetails::default();
 
@@ -101,7 +102,7 @@ pub fn get_instruction_details<'a>(
             &mut instruction_details,
             i as u8,
             program_id,
-            instruction,
+            instruction.clone(),
         )?;
         parse_builtin_instructions(&mut instruction_details, i as u8, program_id, instruction)?;
     }
@@ -109,11 +110,11 @@ pub fn get_instruction_details<'a>(
     Ok(instruction_details)
 }
 
-fn parse_builtin_instructions<'a>(
+fn parse_builtin_instructions(
     instruction_details: &mut InstructionDetails,
     _index: u8,
-    program_id: &'a Pubkey,
-    _instruction: &'a CompiledInstruction,
+    program_id: &Pubkey,
+    _instruction: SVMInstruction,
 ) -> Result<(), TransactionError> {
     if let Some(builtin_ix_cost) = BUILTIN_INSTRUCTION_COSTS.get(program_id) {
         saturating_add_assign!(
@@ -128,11 +129,11 @@ fn parse_builtin_instructions<'a>(
     Ok(())
 }
 
-fn parse_compute_budget_instructions<'a>(
+fn parse_compute_budget_instructions(
     instruction_details: &mut InstructionDetails,
     index: u8,
-    program_id: &'a Pubkey,
-    instruction: &'a CompiledInstruction,
+    program_id: &Pubkey,
+    instruction: SVMInstruction,
 ) -> Result<(), TransactionError> {
     if compute_budget::check_id(program_id) {
         saturating_add_assign!(instruction_details.count_compute_budget_instructions, 1);
@@ -141,7 +142,7 @@ fn parse_compute_budget_instructions<'a>(
             TransactionError::InstructionError(index, InstructionError::InvalidInstructionData);
         let duplicate_instruction_error = TransactionError::DuplicateInstruction(index);
 
-        match try_from_slice_unchecked(&instruction.data) {
+        match try_from_slice_unchecked(instruction.data) {
             Ok(ComputeBudgetInstruction::RequestHeapFrame(bytes)) => {
                 if instruction_details.requested_heap_size.is_some() {
                     return Err(duplicate_instruction_error);
@@ -191,7 +192,8 @@ fn sanitize_requested_heap_size(bytes: u32) -> bool {
 pub fn process_compute_budget_instructions<'a>(
     instructions: impl Iterator<Item = (&'a Pubkey, &'a CompiledInstruction)>,
 ) -> Result<ComputeBudgetLimits, TransactionError> {
-    get_instruction_details(instructions)?.sanitize_and_convert_to_compute_budget_limits()
+    get_instruction_details(instructions.map(|(pubkey, ix)| (pubkey, SVMInstruction::from(ix))))?
+        .sanitize_and_convert_to_compute_budget_limits()
 }
 
 #[cfg(test)]

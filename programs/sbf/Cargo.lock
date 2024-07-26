@@ -4779,6 +4779,7 @@ dependencies = [
  "solana-builtins-default-costs",
  "solana-compute-budget",
  "solana-sdk",
+ "solana-svm-transaction",
 ]
 
 [[package]]
@@ -6367,6 +6368,13 @@ dependencies = [
  "solana-timings",
  "solana-type-overrides",
  "solana-vote",
+]
+
+[[package]]
+name = "solana-svm-transaction"
+version = "2.1.0"
+dependencies = [
+ "solana-sdk",
 ]
 
 [[package]]
