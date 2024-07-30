@@ -56,6 +56,12 @@ impl ImmutableDeserializedPacket {
         let message_hash = Message::hash_raw_message(message_bytes);
         let is_simple_vote = packet.meta().is_simple_vote_tx();
 
+        // TODO - use runtime_transaction instead of sanitized_versioned_transaction and bunch of
+        // limits here. Meantime, allow
+        // Leader to load and sanitize compute-budget instructions with latest feature-set for the
+        // best results, without impacting consensus. 
+        let feature_set = solana_sdk::feature_set::FeatureSet::default();
+
         // drop transaction if prioritization fails.
         let ComputeBudgetLimits {
             mut compute_unit_price,
@@ -65,6 +71,7 @@ impl ImmutableDeserializedPacket {
             sanitized_transaction
                 .get_message()
                 .program_instructions_iter(),
+            &feature_set,
         )
         .map_err(|_| DeserializedPacketError::PrioritizationFailure)?;
 

@@ -204,6 +204,7 @@ impl PrioritizationFeeCache {
 
                 let compute_budget_limits = process_compute_budget_instructions(
                     sanitized_transaction.message().program_instructions_iter(),
+                    &bank.feature_set,
                 );
                 let account_locks = sanitized_transaction
                     .get_account_locks(bank.get_transaction_account_lock_limit());

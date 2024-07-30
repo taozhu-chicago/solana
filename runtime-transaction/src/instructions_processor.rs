@@ -1,7 +1,7 @@
 use {
     crate::instruction_details::*,
     solana_compute_budget::compute_budget_limits::*,
-    solana_sdk::{instruction::CompiledInstruction, pubkey::Pubkey, transaction::Result},
+    solana_sdk::{instruction::CompiledInstruction, feature_set::FeatureSet, pubkey::Pubkey, transaction::Result},
     solana_svm_transaction::instruction::SVMInstruction,
 };
 
@@ -10,11 +10,12 @@ use {
 // or access runtime-transaction directly
 pub fn process_compute_budget_instructions<'a>(
     instructions: impl Iterator<Item = (&'a Pubkey, &'a CompiledInstruction)>,
+    feature_set: &FeatureSet,
 ) -> Result<ComputeBudgetLimits> {
     InstructionDetails::try_from(
         instructions.map(|(pubkey, ix)| (pubkey, SVMInstruction::from(ix))),
     )?
-    .sanitize_and_convert_to_compute_budget_limits()
+    .sanitize_and_convert_to_compute_budget_limits(feature_set)
 }
 
 #[cfg(test)]

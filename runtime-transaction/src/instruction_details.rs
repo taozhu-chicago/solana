@@ -4,6 +4,7 @@ use {
     solana_sdk::{
         borsh1::try_from_slice_unchecked,
         compute_budget::{self, ComputeBudgetInstruction},
+        feature_set::{self, FeatureSet},
         instruction::InstructionError,
         pubkey::Pubkey,
         saturating_add_assign,
@@ -119,7 +120,10 @@ impl BuiltinInstructionDetails {
 }
 
 impl InstructionDetails {
-    pub fn sanitize_and_convert_to_compute_budget_limits(&self) -> Result<ComputeBudgetLimits> {
+    pub fn sanitize_and_convert_to_compute_budget_limits(
+        &self,
+        feature_set: &FeatureSet,
+    ) -> Result<ComputeBudgetLimits> {
         // Sanitize requested heap size
         let updated_heap_bytes = self
             .compute_budget_instruction_details
@@ -130,28 +134,47 @@ impl InstructionDetails {
             .min(MAX_HEAP_FRAME_BYTES);
 
         // Calculate compute unit limit
-        let compute_unit_limit = self
+        let compute_unit_limit = if let Some((index, requested_compute_unit_limit)) = self
             .compute_budget_instruction_details
             .requested_compute_unit_limit
-            .map_or_else(
-                || {
-                    // NOTE: to match current behavior of:
-                    // num_non_compute_budget_instructions * DEFAULT
+        {
+            if feature_set.is_active(&feature_set::compute_budget_uses_builtin_default_costs::id())
+                && !(self.builtin_instruction_details.sum_builtin_compute_units
+                    ..=MAX_COMPUTE_UNIT_LIMIT)
+                    .contains(&requested_compute_unit_limit)
+            {
+                return Err(TransactionError::InstructionError(
+                    index,
+                    InstructionError::InvalidInstructionData,
+                ));
+            }
+            requested_compute_unit_limit
+        } else if feature_set
+            .is_active(&feature_set::compute_budget_uses_builtin_default_costs::id())
+        {
+            self.builtin_instruction_details
+                .sum_builtin_compute_units
+                .saturating_add(
                     self.builtin_instruction_details
-                        .count_builtin_instructions
-                        .saturating_add(
-                            self.builtin_instruction_details
-                                .count_non_builtin_instructions,
-                        )
-                        .saturating_sub(
-                            self.compute_budget_instruction_details
-                                .count_compute_budget_instructions,
-                        )
-                        .saturating_mul(DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT)
-                },
-                |(_index, requested_compute_unit_limit)| requested_compute_unit_limit,
-            )
-            .min(MAX_COMPUTE_UNIT_LIMIT);
+                        .count_non_builtin_instructions
+                        .saturating_mul(DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT),
+                )
+        } else {
+            // current behavior of:
+            // num_non_compute_budget_instructions * DEFAULT
+            self.builtin_instruction_details
+                .count_builtin_instructions
+                .saturating_add(
+                    self.builtin_instruction_details
+                        .count_non_builtin_instructions,
+                )
+                .saturating_sub(
+                    self.compute_budget_instruction_details
+                        .count_compute_budget_instructions,
+                )
+                .saturating_mul(DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT)
+        }
+        .min(MAX_COMPUTE_UNIT_LIMIT);
 
         let compute_unit_price = self
             .compute_budget_instruction_details
