@@ -19,7 +19,7 @@ impl BuiltinInstructionDetails {
     pub fn process_instruction<'a>(
         &mut self,
         program_id: &'a Pubkey,
-        _instruction: &'a CompiledInstruction, // reserved to identify builtin cost pby instruction
+        _instruction: &'a CompiledInstruction, // reserved to identify builtin cost by instruction
                                                // instead of by program_id
     ) -> Result<()> {
         if let Some(builtin_ix_cost) = BUILTIN_INSTRUCTION_COSTS.get(program_id) {
