@@ -1,13 +1,10 @@
-use {
-    solana_compute_budget::compute_budget_limits::*,
-    solana_sdk::{
-        borsh1::try_from_slice_unchecked,
-        compute_budget::{self, ComputeBudgetInstruction},
-        instruction::{CompiledInstruction, InstructionError},
-        pubkey::Pubkey,
-        saturating_add_assign,
-        transaction::{Result, TransactionError},
-    },
+use solana_sdk::{
+    borsh1::try_from_slice_unchecked,
+    compute_budget::{self, ComputeBudgetInstruction},
+    instruction::{CompiledInstruction, InstructionError},
+    pubkey::Pubkey,
+    saturating_add_assign,
+    transaction::{Result, TransactionError},
 };
 
 #[cfg_attr(test, derive(Eq, PartialEq))]
@@ -39,11 +36,7 @@ impl ComputeBudgetInstructionDetails {
                     if self.requested_heap_size.is_some() {
                         return Err(duplicate_instruction_error);
                     }
-                    if Self::sanitize_requested_heap_size(bytes) {
-                        self.requested_heap_size = Some((index, bytes));
-                    } else {
-                        return Err(invalid_instruction_data_error);
-                    }
+                    self.requested_heap_size = Some((index, bytes));
                 }
                 Ok(ComputeBudgetInstruction::SetComputeUnitLimit(compute_unit_limit)) => {
                     if self.requested_compute_unit_limit.is_some() {
@@ -70,15 +63,14 @@ impl ComputeBudgetInstructionDetails {
 
         Ok(())
     }
-
-    fn sanitize_requested_heap_size(bytes: u32) -> bool {
-        (MIN_HEAP_FRAME_BYTES..=MAX_HEAP_FRAME_BYTES).contains(&bytes) && bytes % 1024 == 0
-    }
 }
 
 #[cfg(test)]
 mod test {
-    use {super::*, solana_sdk::instruction::Instruction};
+    use {
+        super::*, solana_compute_budget::compute_budget_limits::*,
+        solana_sdk::instruction::Instruction,
+    };
 
     fn setup_test_instruction(
         index: u8,
@@ -99,44 +91,6 @@ mod test {
         let mut index = 0;
         let mut expected_details = ComputeBudgetInstructionDetails::default();
         let mut compute_budget_instruction_details = ComputeBudgetInstructionDetails::default();
-
-        // invalid data results error
-        let expected_err = Err(TransactionError::InstructionError(
-            index,
-            InstructionError::InvalidInstructionData,
-        ));
-        let (program_id, ix) = setup_test_instruction(
-            index,
-            ComputeBudgetInstruction::request_heap_frame(MIN_HEAP_FRAME_BYTES - 1),
-        );
-        assert_eq!(
-            compute_budget_instruction_details.process_instruction(index, &program_id, &ix),
-            expected_err
-        );
-        let (program_id, ix) = setup_test_instruction(
-            index,
-            ComputeBudgetInstruction::request_heap_frame(MAX_HEAP_FRAME_BYTES + 1),
-        );
-        assert_eq!(
-            compute_budget_instruction_details.process_instruction(index, &program_id, &ix),
-            expected_err
-        );
-        let (program_id, ix) = setup_test_instruction(
-            index,
-            ComputeBudgetInstruction::request_heap_frame(1024 + 1),
-        );
-        assert_eq!(
-            compute_budget_instruction_details.process_instruction(index, &program_id, &ix),
-            expected_err
-        );
-        let (program_id, ix) = setup_test_instruction(
-            index,
-            ComputeBudgetInstruction::request_heap_frame(31 * 1024),
-        );
-        assert_eq!(
-            compute_budget_instruction_details.process_instruction(index, &program_id, &ix),
-            expected_err
-        );
 
         // irrelevant instruction makes no change
         index += 1;
