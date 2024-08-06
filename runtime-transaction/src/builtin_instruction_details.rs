@@ -8,7 +8,7 @@ use {
 
 #[cfg_attr(test, derive(Clone, Eq, PartialEq))]
 #[derive(Default, Debug)]
-pub struct BuiltinInstructionDetails {
+pub(crate) struct BuiltinInstructionDetails {
     // builtin instruction details
     pub sum_builtin_compute_units: u32,
     pub count_builtin_instructions: u32,
