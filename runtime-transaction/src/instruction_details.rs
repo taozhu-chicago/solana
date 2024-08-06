@@ -58,16 +58,7 @@ impl InstructionDetails {
                 || {
                     // NOTE: to match current behavior of:
                     // num_non_compute_budget_instructions * DEFAULT
-                    self.builtin_instruction_details
-                        .count_builtin_instructions
-                        .saturating_add(
-                            self.builtin_instruction_details
-                                .count_non_builtin_instructions,
-                        )
-                        .saturating_sub(
-                            self.compute_budget_instruction_details
-                                .count_compute_budget_instructions,
-                        )
+                    self.num_non_compute_budget_instructions()
                         .saturating_mul(DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT)
                 },
                 |(_index, requested_compute_unit_limit)| requested_compute_unit_limit,
@@ -99,6 +90,19 @@ impl InstructionDetails {
             compute_unit_price,
             loaded_accounts_bytes,
         })
+    }
+
+    fn num_non_compute_budget_instructions(&self) -> u32 {
+        self.builtin_instruction_details
+            .count_builtin_instructions
+            .saturating_add(
+                self.builtin_instruction_details
+                    .count_non_builtin_instructions,
+            )
+            .saturating_sub(
+                self.compute_budget_instruction_details
+                    .count_compute_budget_instructions,
+            )
     }
 }
 
