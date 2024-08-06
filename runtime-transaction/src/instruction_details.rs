@@ -15,12 +15,14 @@ use {
 
 /// Information about instructions gathered after scan over transaction;
 /// These are "raw" information that suitable for cache and reuse.
+#[cfg_attr(test, derive(Eq, PartialEq))]
 #[derive(Default, Debug)]
 pub struct InstructionDetails {
     compute_budget_instruction_details: ComputeBudgetInstructionDetails,
     builtin_instruction_details: BuiltinInstructionDetails,
 }
 
+#[cfg_attr(test, derive(Eq, PartialEq))]
 #[derive(Default, Debug)]
 struct ComputeBudgetInstructionDetails {
     // compute-budget instruction details:
@@ -32,6 +34,7 @@ struct ComputeBudgetInstructionDetails {
     count_compute_budget_instructions: u32,
 }
 
+#[cfg_attr(test, derive(Eq, PartialEq))]
 #[derive(Default, Debug)]
 struct BuiltinInstructionDetails {
     // builtin instruction details
@@ -96,7 +99,7 @@ impl ComputeBudgetInstructionDetails {
 }
 
 impl BuiltinInstructionDetails {
-    pub fn process_instruction<'a>(
+    pub fn process_instruction(
         &mut self,
         program_id: &Pubkey,
         _instruction: &SVMInstruction,
