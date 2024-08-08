@@ -1,10 +1,10 @@
 use {
-    crate::{builtin_instruction_details::*, compute_budget_instruction_details::*},
     solana_builtins_default_costs::MAYBE_BUILTIN_KEY,
     solana_compute_budget::compute_budget_limits::*,
     solana_sdk::{
         instruction::{CompiledInstruction, InstructionError},
         pubkey::Pubkey,
+        saturating_add_assign,
         transaction::{Result, TransactionError},
     },
     std::num::NonZeroU32,
@@ -15,56 +15,60 @@ use {
 #[cfg_attr(test, derive(Eq, PartialEq))]
 #[derive(Default, Debug)]
 pub struct InstructionDetails {
-    builtin_instruction_details: BuiltinInstructionDetails,
-    compute_budget_instruction_details: ComputeBudgetInstructionDetails,
+    // compute-budget instruction details:
+    // the first field in tuple is instruction index, second field is the unsanitized value set by user
+    pub requested_compute_unit_limit: Option<(u8, u32)>,
+    pub requested_compute_unit_price: Option<(u8, u64)>,
+    pub requested_heap_size: Option<(u8, u32)>,
+    pub requested_loaded_accounts_data_size_limit: Option<(u8, u32)>,
+    // builtin instruction details
+    pub sum_builtin_compute_units: u32,
+    pub count_builtin_instructions: u32,
+    pub count_non_builtin_instructions: u32,
+    pub count_compute_budget_instructions: u32,
 }
 
 impl InstructionDetails {
     pub fn try_from<'a>(
         instructions: impl Iterator<Item = (&'a Pubkey, &'a CompiledInstruction)>,
     ) -> Result<Self> {
-        let mut compute_budget_instruction_details = ComputeBudgetInstructionDetails::default();
-        let mut builtin_instruction_details = BuiltinInstructionDetails::default();
+        let mut instruction_details = InstructionDetails::default();
 
-        for (i, (program_id, instruction)) in instructions
-            .enumerate()
-            .filter(|(_, (program_id, _))| MAYBE_BUILTIN_KEY[program_id.to_bytes()[0] as usize])
-        {
-            compute_budget_instruction_details.process_instruction(
-                i as u8,
-                program_id,
-                instruction,
-            )?;
-            builtin_instruction_details.process_instruction(program_id, instruction)?;
+        for (i, (program_id, instruction)) in instructions.enumerate() {
+            if MAYBE_BUILTIN_KEY[program_id.to_bytes()[0] as usize] {
+                instruction_details.process_compute_budget_instruction(
+                    i as u8,
+                    program_id,
+                    instruction,
+                )?;
+                instruction_details.process_builtin_instruction(program_id, instruction)?;
+            } else {
+                saturating_add_assign!(instruction_details.count_non_builtin_instructions, 1);
+            }
         }
 
-        Ok(Self {
-            builtin_instruction_details,
-            compute_budget_instruction_details,
-        })
+        Ok(instruction_details)
     }
 
     pub fn sanitize_and_convert_to_compute_budget_limits(&self) -> Result<ComputeBudgetLimits> {
         // Sanitize requested heap size
-        let updated_heap_bytes = if let Some((index, requested_heap_size)) =
-            self.compute_budget_instruction_details.requested_heap_size
-        {
-            if Self::sanitize_requested_heap_size(requested_heap_size) {
-                requested_heap_size
+        let updated_heap_bytes =
+            if let Some((index, requested_heap_size)) = self.requested_heap_size {
+                if Self::sanitize_requested_heap_size(requested_heap_size) {
+                    requested_heap_size
+                } else {
+                    return Err(TransactionError::InstructionError(
+                        index,
+                        InstructionError::InvalidInstructionData,
+                    ));
+                }
             } else {
-                return Err(TransactionError::InstructionError(
-                    index,
-                    InstructionError::InvalidInstructionData,
-                ));
+                MIN_HEAP_FRAME_BYTES
             }
-        } else {
-            MIN_HEAP_FRAME_BYTES
-        }
-        .min(MAX_HEAP_FRAME_BYTES);
+            .min(MAX_HEAP_FRAME_BYTES);
 
         // Calculate compute unit limit
         let compute_unit_limit = self
-            .compute_budget_instruction_details
             .requested_compute_unit_limit
             .map_or_else(
                 || {
@@ -78,16 +82,14 @@ impl InstructionDetails {
             .min(MAX_COMPUTE_UNIT_LIMIT);
 
         let compute_unit_price = self
-            .compute_budget_instruction_details
             .requested_compute_unit_price
             .map_or(0, |(_index, requested_compute_unit_price)| {
                 requested_compute_unit_price
             });
 
         let loaded_accounts_bytes =
-            if let Some((_index, requested_loaded_accounts_data_size_limit)) = self
-                .compute_budget_instruction_details
-                .requested_loaded_accounts_data_size_limit
+            if let Some((_index, requested_loaded_accounts_data_size_limit)) =
+                self.requested_loaded_accounts_data_size_limit
             {
                 NonZeroU32::new(requested_loaded_accounts_data_size_limit)
                     .ok_or(TransactionError::InvalidLoadedAccountsDataSizeLimit)?
@@ -109,16 +111,9 @@ impl InstructionDetails {
     }
 
     fn num_non_compute_budget_instructions(&self) -> u32 {
-        self.builtin_instruction_details
-            .count_builtin_instructions
-            .saturating_add(
-                self.builtin_instruction_details
-                    .count_non_builtin_instructions,
-            )
-            .saturating_sub(
-                self.compute_budget_instruction_details
-                    .count_compute_budget_instructions,
-            )
+        self.count_builtin_instructions
+            .saturating_add(self.count_non_builtin_instructions)
+            .saturating_sub(self.count_compute_budget_instructions)
     }
 }
 
@@ -152,34 +147,33 @@ mod test {
     #[test]
     fn test_try_from() {
         let payer_keypair = Keypair::new();
+        let dummy_program_id: Pubkey = "dummmy1111111111111111111111111111111111111"
+            .parse()
+            .unwrap();
         test!(payer_keypair, &[], Ok(InstructionDetails::default()));
 
         test!(
             payer_keypair,
             &[
-                Instruction::new_with_bincode(Pubkey::new_unique(), &0_u8, vec![]),
+                Instruction::new_with_bincode(dummy_program_id, &0_u8, vec![]),
                 ComputeBudgetInstruction::request_heap_frame(40 * 1024),
                 ComputeBudgetInstruction::set_compute_unit_limit(u32::MAX),
                 ComputeBudgetInstruction::set_compute_unit_price(u64::MAX),
                 ComputeBudgetInstruction::set_loaded_accounts_data_size_limit(u32::MAX),
-                Instruction::new_with_bincode(Pubkey::new_unique(), &0_u8, vec![]),
+                Instruction::new_with_bincode(dummy_program_id, &0_u8, vec![]),
                 system_instruction::transfer(&payer_keypair.pubkey(), &Pubkey::new_unique(), 1),
             ],
             Ok(InstructionDetails {
-                builtin_instruction_details: BuiltinInstructionDetails {
-                    sum_builtin_compute_units: 4
-                        * solana_compute_budget_program::DEFAULT_COMPUTE_UNITS as u32
-                        + solana_system_program::system_processor::DEFAULT_COMPUTE_UNITS as u32,
-                    count_builtin_instructions: 5,
-                    count_non_builtin_instructions: 2,
-                },
-                compute_budget_instruction_details: ComputeBudgetInstructionDetails {
-                    requested_compute_unit_limit: Some((2, u32::MAX)),
-                    requested_compute_unit_price: Some((3, u64::MAX)),
-                    requested_heap_size: Some((1, 40 * 1024)),
-                    requested_loaded_accounts_data_size_limit: Some((4, u32::MAX)),
-                    count_compute_budget_instructions: 4,
-                },
+                sum_builtin_compute_units: 4 * solana_compute_budget_program::DEFAULT_COMPUTE_UNITS
+                    as u32
+                    + solana_system_program::system_processor::DEFAULT_COMPUTE_UNITS as u32,
+                count_builtin_instructions: 5,
+                count_non_builtin_instructions: 2,
+                requested_compute_unit_limit: Some((2, u32::MAX)),
+                requested_compute_unit_price: Some((3, u64::MAX)),
+                requested_heap_size: Some((1, 40 * 1024)),
+                requested_loaded_accounts_data_size_limit: Some((4, u32::MAX)),
+                count_compute_budget_instructions: 4,
             })
         );
 
@@ -213,15 +207,11 @@ mod test {
         let count_builtin_instructions = 5;
         let count_non_builtin_instructions = 2;
         let count_compute_budget_instructions = 4;
-        let builtin_instruction_details = BuiltinInstructionDetails {
-            count_builtin_instructions,
-            count_non_builtin_instructions,
-            ..BuiltinInstructionDetails::default()
-        };
 
         // no compute-budget instructions, all default ComputeBudgetLimits except cu-limit
         let instruction_details = InstructionDetails {
-            builtin_instruction_details: builtin_instruction_details.clone(),
+            count_builtin_instructions,
+            count_non_builtin_instructions,
             ..InstructionDetails::default()
         };
         let expected_compute_unit_limit = (count_builtin_instructions
@@ -241,14 +231,14 @@ mod test {
         ));
         // invalid: requested_heap_size can't be zero
         let instruction_details = InstructionDetails {
-            builtin_instruction_details: builtin_instruction_details.clone(),
-            compute_budget_instruction_details: ComputeBudgetInstructionDetails {
-                requested_compute_unit_limit: Some((1, 0)),
-                requested_compute_unit_price: Some((2, 0)),
-                requested_heap_size: Some((3, 0)),
-                requested_loaded_accounts_data_size_limit: Some((4, 1024)),
-                count_compute_budget_instructions,
-            },
+            requested_compute_unit_limit: Some((1, 0)),
+            requested_compute_unit_price: Some((2, 0)),
+            requested_heap_size: Some((3, 0)),
+            requested_loaded_accounts_data_size_limit: Some((4, 1024)),
+            count_compute_budget_instructions,
+            count_builtin_instructions,
+            count_non_builtin_instructions,
+            ..InstructionDetails::default()
         };
         assert_eq!(
             instruction_details.sanitize_and_convert_to_compute_budget_limits(),
@@ -257,14 +247,14 @@ mod test {
 
         // invalid: requested_heap_size can't be less than MIN_HEAP_FRAME_BYTES
         let instruction_details = InstructionDetails {
-            builtin_instruction_details: builtin_instruction_details.clone(),
-            compute_budget_instruction_details: ComputeBudgetInstructionDetails {
-                requested_compute_unit_limit: Some((1, 0)),
-                requested_compute_unit_price: Some((2, 0)),
-                requested_heap_size: Some((3, MIN_HEAP_FRAME_BYTES - 1)),
-                requested_loaded_accounts_data_size_limit: Some((4, 1024)),
-                count_compute_budget_instructions,
-            },
+            requested_compute_unit_limit: Some((1, 0)),
+            requested_compute_unit_price: Some((2, 0)),
+            requested_heap_size: Some((3, MIN_HEAP_FRAME_BYTES - 1)),
+            requested_loaded_accounts_data_size_limit: Some((4, 1024)),
+            count_compute_budget_instructions,
+            count_builtin_instructions,
+            count_non_builtin_instructions,
+            ..InstructionDetails::default()
         };
         assert_eq!(
             instruction_details.sanitize_and_convert_to_compute_budget_limits(),
@@ -273,14 +263,14 @@ mod test {
 
         // invalid: requested_heap_size can't be more than MAX_HEAP_FRAME_BYTES
         let instruction_details = InstructionDetails {
-            builtin_instruction_details: builtin_instruction_details.clone(),
-            compute_budget_instruction_details: ComputeBudgetInstructionDetails {
-                requested_compute_unit_limit: Some((1, 0)),
-                requested_compute_unit_price: Some((2, 0)),
-                requested_heap_size: Some((3, MAX_HEAP_FRAME_BYTES + 1)),
-                requested_loaded_accounts_data_size_limit: Some((4, 1024)),
-                count_compute_budget_instructions,
-            },
+            requested_compute_unit_limit: Some((1, 0)),
+            requested_compute_unit_price: Some((2, 0)),
+            requested_heap_size: Some((3, MAX_HEAP_FRAME_BYTES + 1)),
+            requested_loaded_accounts_data_size_limit: Some((4, 1024)),
+            count_compute_budget_instructions,
+            count_builtin_instructions,
+            count_non_builtin_instructions,
+            ..InstructionDetails::default()
         };
         assert_eq!(
             instruction_details.sanitize_and_convert_to_compute_budget_limits(),
@@ -289,14 +279,14 @@ mod test {
 
         // invalid: requested_heap_size must be round by 1024
         let instruction_details = InstructionDetails {
-            builtin_instruction_details: builtin_instruction_details.clone(),
-            compute_budget_instruction_details: ComputeBudgetInstructionDetails {
-                requested_compute_unit_limit: Some((1, 0)),
-                requested_compute_unit_price: Some((2, 0)),
-                requested_heap_size: Some((3, MIN_HEAP_FRAME_BYTES + 1024 + 1)),
-                requested_loaded_accounts_data_size_limit: Some((4, 1024)),
-                count_compute_budget_instructions,
-            },
+            requested_compute_unit_limit: Some((1, 0)),
+            requested_compute_unit_price: Some((2, 0)),
+            requested_heap_size: Some((3, MIN_HEAP_FRAME_BYTES + 1024 + 1)),
+            requested_loaded_accounts_data_size_limit: Some((4, 1024)),
+            count_compute_budget_instructions,
+            count_builtin_instructions,
+            count_non_builtin_instructions,
+            ..InstructionDetails::default()
         };
         assert_eq!(
             instruction_details.sanitize_and_convert_to_compute_budget_limits(),
@@ -305,14 +295,14 @@ mod test {
 
         // invalid: loaded_account_data_size can't be zero
         let instruction_details = InstructionDetails {
-            builtin_instruction_details: builtin_instruction_details.clone(),
-            compute_budget_instruction_details: ComputeBudgetInstructionDetails {
-                requested_compute_unit_limit: Some((1, 0)),
-                requested_compute_unit_price: Some((2, 0)),
-                requested_heap_size: Some((3, 40 * 1024)),
-                requested_loaded_accounts_data_size_limit: Some((4, 0)),
-                count_compute_budget_instructions,
-            },
+            requested_compute_unit_limit: Some((1, 0)),
+            requested_compute_unit_price: Some((2, 0)),
+            requested_heap_size: Some((3, 40 * 1024)),
+            requested_loaded_accounts_data_size_limit: Some((4, 0)),
+            count_compute_budget_instructions,
+            count_builtin_instructions,
+            count_non_builtin_instructions,
+            ..InstructionDetails::default()
         };
         assert_eq!(
             instruction_details.sanitize_and_convert_to_compute_budget_limits(),
@@ -321,14 +311,14 @@ mod test {
 
         // valid: acceptable MAX
         let instruction_details = InstructionDetails {
-            builtin_instruction_details: builtin_instruction_details.clone(),
-            compute_budget_instruction_details: ComputeBudgetInstructionDetails {
-                requested_compute_unit_limit: Some((1, u32::MAX)),
-                requested_compute_unit_price: Some((2, u64::MAX)),
-                requested_heap_size: Some((3, MAX_HEAP_FRAME_BYTES)),
-                requested_loaded_accounts_data_size_limit: Some((4, u32::MAX)),
-                count_compute_budget_instructions,
-            },
+            requested_compute_unit_limit: Some((1, u32::MAX)),
+            requested_compute_unit_price: Some((2, u64::MAX)),
+            requested_heap_size: Some((3, MAX_HEAP_FRAME_BYTES)),
+            requested_loaded_accounts_data_size_limit: Some((4, u32::MAX)),
+            count_compute_budget_instructions,
+            count_builtin_instructions,
+            count_non_builtin_instructions,
+            ..InstructionDetails::default()
         };
         assert_eq!(
             instruction_details.sanitize_and_convert_to_compute_budget_limits(),
@@ -343,14 +333,14 @@ mod test {
         // valid
         let val: u32 = 1024 * 40;
         let instruction_details = InstructionDetails {
-            builtin_instruction_details,
-            compute_budget_instruction_details: ComputeBudgetInstructionDetails {
-                requested_compute_unit_limit: Some((1, val)),
-                requested_compute_unit_price: Some((2, val as u64)),
-                requested_heap_size: Some((3, val)),
-                requested_loaded_accounts_data_size_limit: Some((4, val)),
-                count_compute_budget_instructions,
-            },
+            requested_compute_unit_limit: Some((1, val)),
+            requested_compute_unit_price: Some((2, val as u64)),
+            requested_heap_size: Some((3, val)),
+            requested_loaded_accounts_data_size_limit: Some((4, val)),
+            count_compute_budget_instructions,
+            count_builtin_instructions,
+            count_non_builtin_instructions,
+            ..InstructionDetails::default()
         };
         assert_eq!(
             instruction_details.sanitize_and_convert_to_compute_budget_limits(),
