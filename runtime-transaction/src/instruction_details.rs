@@ -1,5 +1,6 @@
 use {
     crate::{builtin_instruction_details::*, compute_budget_instruction_details::*},
+    solana_builtins_default_costs::MAYBE_BUILTIN_KEY,
     solana_compute_budget::compute_budget_limits::*,
     solana_sdk::{
         instruction::{CompiledInstruction, InstructionError},
@@ -25,7 +26,10 @@ impl InstructionDetails {
         let mut compute_budget_instruction_details = ComputeBudgetInstructionDetails::default();
         let mut builtin_instruction_details = BuiltinInstructionDetails::default();
 
-        for (i, (program_id, instruction)) in instructions.enumerate() {
+        for (i, (program_id, instruction)) in instructions
+            .enumerate()
+            .filter(|(_, (program_id, _))| MAYBE_BUILTIN_KEY[program_id.to_bytes()[0] as usize])
+        {
             compute_budget_instruction_details.process_instruction(
                 i as u8,
                 program_id,
