@@ -35,7 +35,7 @@ impl InstructionDetails {
         let mut instruction_details = InstructionDetails::default();
 
         for (i, (program_id, instruction)) in instructions.enumerate() {
-            if MAYBE_BUILTIN_KEY[program_id.to_bytes()[0] as usize] {
+            if MAYBE_BUILTIN_KEY[program_id.as_ref()[0] as usize] {
                 instruction_details.process_compute_budget_instruction(
                     i as u8,
                     program_id,
