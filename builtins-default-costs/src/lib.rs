@@ -50,7 +50,7 @@ lazy_static! {
         let mut temp_table: [bool; 256] = [false; 256];
         BUILTIN_INSTRUCTION_COSTS
             .keys()
-            .for_each(|key| temp_table[key.to_bytes()[0] as usize] = true);
+            .for_each(|key| temp_table[key.as_ref()[0] as usize] = true);
         temp_table
     };
 }
