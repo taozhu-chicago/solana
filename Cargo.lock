@@ -7413,6 +7413,7 @@ dependencies = [
  "solana-builtins-default-costs",
  "solana-compute-budget",
  "solana-compute-budget-program",
+ "solana-loader-v4-program",
  "solana-program",
  "solana-sdk",
  "solana-svm-transaction",
