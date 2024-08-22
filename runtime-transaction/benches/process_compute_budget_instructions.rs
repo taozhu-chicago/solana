@@ -167,7 +167,7 @@ fn bench_process_compute_budget_and_transfer_only(c: &mut Criterion) {
             format!("{num_instructions} transfer instructions and compute budget ixs"),
             |bencher| {
                 let payer_keypair = Keypair::new();
-                let mut ixs: Vec<_> = (4..num_instructions)
+                let mut ixs: Vec<_> = (0..num_instructions - 4)
                     .map(|i| system_instruction::transfer(&payer_keypair.pubkey(), &pubkey, i))
                     .collect();
                 ixs.extend(vec![
