@@ -165,6 +165,9 @@ pub fn execute_batch(
         log_messages_bytes_limit,
     );
 
+    // print / collect histogram data for ix costs
+    print_committed_transaction_results(&commit_results, batch.sanitized_transactions());
+
     bank_utils::find_and_send_votes(
         batch.sanitized_transactions(),
         &commit_results,
@@ -257,6 +260,28 @@ fn check_block_cost_limits(
     }
     Ok(())
 }
+
+fn print_committed_transaction_results(
+    commit_results: &[TransactionCommitResult],
+    sanitized_transactions: &[SanitizedTransaction],
+) {
+    assert_eq!(sanitized_transactions.len(), commit_results.len());
+
+    commit_results
+        .iter()
+        .zip(sanitized_transactions)
+        .for_each(|(commit_result, tx)| {
+            match commit_result {
+                Ok(committed_tx) => {
+                    println!("== {:?}", committed_tx);
+                },
+                Err(err) => {
+                    println!("== not committed, tx {:?}, err {:?}", tx.signature(), err);
+                }
+            }
+        });
+}
+
 
 #[derive(Default)]
 pub struct ExecuteBatchesInternalMetrics {
