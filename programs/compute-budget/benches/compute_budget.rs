@@ -11,7 +11,7 @@ const ONE_PAGE: u32 = 32 * 1024;
 const SIXTY_FOUR_MB: u32 = 64 * 1024 * 1024;
 
 fn bench_request_heap_frame(c: &mut Criterion) {
-    let instruction = vec![(
+    let instruction = [(
         solana_sdk::compute_budget::id(),
         CompiledInstruction::new_from_raw_parts(
             0,
@@ -40,7 +40,7 @@ fn bench_request_heap_frame(c: &mut Criterion) {
 }
 
 fn bench_set_compute_unit_limit(c: &mut Criterion) {
-    let instruction = vec![(
+    let instruction = [(
         solana_sdk::compute_budget::id(),
         CompiledInstruction::new_from_raw_parts(
             0,
@@ -69,7 +69,7 @@ fn bench_set_compute_unit_limit(c: &mut Criterion) {
 }
 
 fn bench_set_compute_unit_price(c: &mut Criterion) {
-    let instruction = vec![(
+    let instruction = [(
         solana_sdk::compute_budget::id(),
         CompiledInstruction::new_from_raw_parts(
             0,
@@ -98,7 +98,7 @@ fn bench_set_compute_unit_price(c: &mut Criterion) {
 }
 
 fn bench_set_loaded_accounts_data_size_limit(c: &mut Criterion) {
-    let instruction = vec![(
+    let instruction = [(
         solana_sdk::compute_budget::id(),
         CompiledInstruction::new_from_raw_parts(
             0,
