@@ -6552,8 +6552,12 @@ dependencies = [
 name = "solana-compute-budget-program"
 version = "2.2.0"
 dependencies = [
+ "criterion",
+ "solana-compute-budget",
  "solana-program-runtime",
+ "solana-runtime-transaction",
  "solana-sdk",
+ "solana-svm-transaction",
 ]
 
 [[package]]
