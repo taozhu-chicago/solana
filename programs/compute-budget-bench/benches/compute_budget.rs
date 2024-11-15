@@ -49,7 +49,7 @@ fn bench_set_compute_unit_limit(c: &mut Criterion) {
         ),
     )];
 
-    c.bench_function("request_heap_limit", |bencher| {
+    c.bench_function("set_compute_unit_limit", |bencher| {
         bencher.iter(|| {
             assert_eq!(
                 process_compute_budget_instructions(black_box(
@@ -78,7 +78,7 @@ fn bench_set_compute_unit_price(c: &mut Criterion) {
         ),
     )];
 
-    c.bench_function("request_heap_limit", |bencher| {
+    c.bench_function("set_compute_unit_price", |bencher| {
         bencher.iter(|| {
             assert_eq!(
                 process_compute_budget_instructions(black_box(
@@ -107,7 +107,7 @@ fn bench_set_loaded_accounts_data_size_limit(c: &mut Criterion) {
         ),
     )];
 
-    c.bench_function("request_heap_limit", |bencher| {
+    c.bench_function("set_loaded_accounts_data_size_limit", |bencher| {
         bencher.iter(|| {
             assert_eq!(
                 process_compute_budget_instructions(black_box(
