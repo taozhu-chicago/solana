@@ -13320,6 +13320,10 @@ impl TestSetup {
         ComputeBudgetInstruction::set_compute_unit_limit(cu_limit)
     }
 
+    fn set_cu_price_ix(&self, cu_price: u64) -> Instruction {
+        ComputeBudgetInstruction::set_compute_unit_price(cu_price)
+    }
+
     fn memo_ix(&self) -> (Instruction, u32) {
         // construct a memo instruction that would consume more CU than DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT
         let memo = "The quick brown fox jumped over the lazy dog. ".repeat(22) + "!";
@@ -13476,5 +13480,26 @@ fn test_builtin_ix_cost_adjustment_with_alt_and_cu_limit_high() {
             test_setup.set_cu_limit_ix(cu_limit),
         ]),
         expected
+    );
+}
+
+#[test]
+fn test_set_cu_price_only() {
+    let test_setup = TestSetup::new();
+
+    // Request CU price without setting cu_limit should succeed without cost adjustment
+    let expected = TestResult {
+        cost_adjustment: 0,
+        execution_status: Ok(()),
+    };
+
+    // Current inconsistent behavior:
+    //   cost model estimates cost 150 for CB ix
+    //   compute budget allocates 0 for tx, since it does not allocate CU for CB instructions.
+    //   But CB still needs to consume 750 CU
+    // resulting TX failed due to exceeding budget
+    assert_eq!(
+        test_setup.execute_test_transaction(&[test_setup.set_cu_price_ix(1)]),
+        expected,
     );
 }
