@@ -4226,6 +4226,8 @@ fn sanitize_transaction(
         None,
         address_loader,
         reserved_account_keys,
+        // TODO - pass feature_set
+        &feature_set::FeatureSet::default(),
     )
     .map_err(|err| Error::invalid_params(format!("invalid transaction: {err}")))
 }

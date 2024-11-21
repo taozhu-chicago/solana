@@ -3331,8 +3331,11 @@ impl Bank {
         lamports_per_signature: u64,
     ) -> u64 {
         let fee_budget_limits = FeeBudgetLimits::from(
-            process_compute_budget_instructions(message.program_instructions_iter())
-                .unwrap_or_default(),
+            process_compute_budget_instructions(
+                message.program_instructions_iter(),
+                &self.feature_set,
+            )
+            .unwrap_or_default(),
         );
         solana_fee::calculate_fee(
             message,
@@ -3544,6 +3547,7 @@ impl Bank {
                     None,
                     self,
                     self.get_reserved_account_keys(),
+                    &self.feature_set,
                 )
             })
             .collect::<Result<Vec<_>>>()?;
@@ -6005,6 +6009,7 @@ impl Bank {
                 None,
                 self,
                 self.get_reserved_account_keys(),
+                &self.feature_set,
             )
         }?;
 
@@ -7293,7 +7298,7 @@ impl Bank {
         let transaction_account_lock_limit = self.get_transaction_account_lock_limit();
         let sanitized_txs = txs
             .into_iter()
-            .map(RuntimeTransaction::from_transaction_for_tests)
+            .map(|tx| RuntimeTransaction::from_transaction_for_tests(tx, &self.feature_set))
             .collect::<Vec<_>>();
         let lock_results = self
             .rc

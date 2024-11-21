@@ -7,6 +7,7 @@ use {
     },
     solana_pubkey::Pubkey,
     solana_sdk::{
+        feature_set::FeatureSet,
         message::{AddressLoader, TransactionSignatureDetails},
         simple_vote_transaction_checker::is_simple_vote_transaction,
         transaction::{
@@ -23,6 +24,7 @@ impl RuntimeTransaction<SanitizedVersionedTransaction> {
         sanitized_versioned_tx: SanitizedVersionedTransaction,
         message_hash: MessageHash,
         is_simple_vote_tx: Option<bool>,
+        feature_set: &FeatureSet,
     ) -> Result<Self> {
         let message_hash = match message_hash {
             MessageHash::Precomputed(hash) => hash,
@@ -53,6 +55,7 @@ impl RuntimeTransaction<SanitizedVersionedTransaction> {
                 .get_message()
                 .program_instructions_iter()
                 .map(|(program_id, ix)| (program_id, SVMInstruction::from(ix))),
+            feature_set,
         )?;
 
         Ok(Self {
@@ -76,12 +79,14 @@ impl RuntimeTransaction<SanitizedTransaction> {
         is_simple_vote_tx: Option<bool>,
         address_loader: impl AddressLoader,
         reserved_account_keys: &HashSet<Pubkey>,
+        feature_set: &FeatureSet,
     ) -> Result<Self> {
         let statically_loaded_runtime_tx =
             RuntimeTransaction::<SanitizedVersionedTransaction>::try_from(
                 SanitizedVersionedTransaction::try_from(tx)?,
                 message_hash,
                 is_simple_vote_tx,
+                feature_set,
             )?;
         Self::try_from(
             statically_loaded_runtime_tx,
@@ -136,7 +141,7 @@ impl TransactionWithMeta for RuntimeTransaction<SanitizedTransaction> {
 
 #[cfg(feature = "dev-context-only-utils")]
 impl RuntimeTransaction<SanitizedTransaction> {
-    pub fn from_transaction_for_tests(transaction: solana_sdk::transaction::Transaction) -> Self {
+    pub fn from_transaction_for_tests(transaction: solana_sdk::transaction::Transaction, feature_set: &FeatureSet) -> Self {
         let versioned_transaction = VersionedTransaction::from(transaction);
         Self::try_create(
             versioned_transaction,
@@ -144,6 +149,7 @@ impl RuntimeTransaction<SanitizedTransaction> {
             None,
             solana_sdk::message::SimpleAddressLoader::Disabled,
             &HashSet::new(),
+            feature_set,
         )
         .expect("failed to create RuntimeTransaction from Transaction")
     }
@@ -242,40 +248,47 @@ mod tests {
         fn get_is_simple_vote(
             svt: SanitizedVersionedTransaction,
             is_simple_vote: Option<bool>,
+            feature_set: &FeatureSet,
         ) -> bool {
             RuntimeTransaction::<SanitizedVersionedTransaction>::try_from(
                 svt,
                 MessageHash::Compute,
                 is_simple_vote,
+                feature_set,
             )
             .unwrap()
             .meta
             .is_simple_vote_transaction
         }
 
-        assert!(!get_is_simple_vote(
-            non_vote_sanitized_versioned_transaction(),
-            None
-        ));
+        for feature_set in [FeatureSet::default(), FeatureSet::all_enabled()] {
+            assert!(!get_is_simple_vote(
+                non_vote_sanitized_versioned_transaction(),
+                None,
+                &feature_set,
+            ));
 
-        assert!(get_is_simple_vote(
-            non_vote_sanitized_versioned_transaction(),
-            Some(true), // override
-        ));
+            assert!(get_is_simple_vote(
+                non_vote_sanitized_versioned_transaction(),
+                Some(true), // override
+                &feature_set,
+            ));
 
-        assert!(get_is_simple_vote(
-            vote_sanitized_versioned_transaction(),
-            None
-        ));
+            assert!(get_is_simple_vote(
+                vote_sanitized_versioned_transaction(),
+                None,
+                &feature_set,
+            ));
 
-        assert!(!get_is_simple_vote(
-            vote_sanitized_versioned_transaction(),
-            Some(false), // override
-        ));
+            assert!(!get_is_simple_vote(
+                vote_sanitized_versioned_transaction(),
+                Some(false), // override
+                &feature_set,
+            ));
+        }
     }
 
-    #[test]
-    fn test_advancing_transaction_type() {
+    fn assert_advancing_transaction_type(feature_set: &FeatureSet) {
         let hash = Hash::new_unique();
 
         let statically_loaded_transaction =
@@ -283,6 +296,7 @@ mod tests {
                 non_vote_sanitized_versioned_transaction(),
                 MessageHash::Precomputed(hash),
                 None,
+                feature_set,
             )
             .unwrap();
 
@@ -302,7 +316,13 @@ mod tests {
     }
 
     #[test]
-    fn test_runtime_transaction_static_meta() {
+    fn test_advancing_transaction_type() {
+        for feature_set in [FeatureSet::default(), FeatureSet::all_enabled()] {
+            assert_advancing_transaction_type(&feature_set);
+        }
+    }
+
+    fn assert_runtime_transaction_static_meta(feature_set: &FeatureSet) {
         let hash = Hash::new_unique();
         let compute_unit_limit = 250_000;
         let compute_unit_price = 1_000;
@@ -318,6 +338,7 @@ mod tests {
                     .to_sanitized_versioned_transaction(),
                 MessageHash::Precomputed(hash),
                 None,
+                feature_set,
             )
             .unwrap();
 
@@ -338,5 +359,12 @@ mod tests {
             loaded_accounts_bytes,
             compute_budget_limits.loaded_accounts_bytes.get()
         );
+    }
+
+    #[test]
+    fn test_runtime_transaction_static_meta() {
+        for feature_set in [FeatureSet::default(), FeatureSet::all_enabled()] {
+            assert_runtime_transaction_static_meta(&feature_set);
+        }
     }
 }

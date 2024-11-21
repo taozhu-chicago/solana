@@ -10,6 +10,7 @@ use {
     solana_sanitize::SanitizeError,
     solana_sdk::{
         clock::Slot,
+        feature_set::{self, FeatureSet},
         hash::Hash,
         message::{v0::LoadedAddresses, AddressLoaderError, Message, SimpleAddressLoader},
         pubkey::Pubkey,
@@ -63,6 +64,15 @@ impl ImmutableDeserializedPacket {
         let message_hash = Message::hash_raw_message(message_bytes);
         let is_simple_vote = packet.meta().is_simple_vote_tx();
 
+        // Make a dummy feature_set with `reserve_minimal_cus_for_builtin_instructions` enabled to
+        // fetch compute_unit_price and compute_unit_limit for legacy leader. It can be removed
+        // once this feature is activated everywhere.
+        let mut feature_set = FeatureSet::default();
+        feature_set.activate(
+            &feature_set::reserve_minimal_cus_for_builtin_instructions::id(),
+            0,
+        );
+
         // drop transaction if prioritization fails.
         let ComputeBudgetLimits {
             mut compute_unit_price,
@@ -73,6 +83,7 @@ impl ImmutableDeserializedPacket {
                 .get_message()
                 .program_instructions_iter()
                 .map(|(pubkey, ix)| (pubkey, SVMInstruction::from(ix))),
+            &feature_set,
         )
         .map_err(|_| DeserializedPacketError::PrioritizationFailure)?;
 
@@ -136,6 +147,7 @@ impl ImmutableDeserializedPacket {
             self.transaction.clone(),
             MessageHash::Precomputed(self.message_hash),
             Some(self.is_simple_vote),
+            &bank.feature_set,
         )
         .and_then(|tx| {
             RuntimeTransaction::<SanitizedTransaction>::try_from(

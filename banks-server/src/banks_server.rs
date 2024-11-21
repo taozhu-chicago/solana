@@ -185,6 +185,7 @@ fn simulate_transaction(
         Some(false), // is_simple_vote_tx
         bank,
         bank.get_reserved_account_keys(),
+        &bank.feature_set,
     ) {
         Err(err) => {
             return BanksTransactionResultWithSimulation {

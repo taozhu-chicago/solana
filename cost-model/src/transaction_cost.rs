@@ -311,6 +311,7 @@ mod tests {
             Some(true),
             SimpleAddressLoader::Disabled,
             &ReservedAccountKeys::empty_key_set(),
+            &FeatureSet::all_enabled(),
         )
         .unwrap();
 
@@ -321,6 +322,7 @@ mod tests {
             Some(false),
             SimpleAddressLoader::Disabled,
             &ReservedAccountKeys::empty_key_set(),
+            &FeatureSet::all_enabled(),
         )
         .unwrap();
 

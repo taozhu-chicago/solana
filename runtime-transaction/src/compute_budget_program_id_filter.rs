@@ -26,7 +26,12 @@ impl ComputeBudgetProgramIdFilter {
     }
 
     #[inline]
-    pub(crate) fn get_program_kind(&mut self, index: usize, program_id: &Pubkey, feature_set: &FeatureSet) -> ProgramKind {
+    pub(crate) fn get_program_kind(
+        &mut self,
+        index: usize,
+        program_id: &Pubkey,
+        feature_set: &FeatureSet,
+    ) -> ProgramKind {
         *self
             .program_kind
             .get_mut(index)
@@ -40,14 +45,12 @@ impl ComputeBudgetProgramIdFilter {
             return ProgramKind::NotBuiltin;
         }
 
-        get_builtin_instruction_cost(
-            program_id, feature_set
-        )
-        .map_or(ProgramKind::NotBuiltin, |_default_cost| {
-            ProgramKind::Builtin {
+        get_builtin_instruction_cost(program_id, feature_set).map_or(
+            ProgramKind::NotBuiltin,
+            |_default_cost| ProgramKind::Builtin {
                 is_compute_budget: solana_sdk::compute_budget::check_id(program_id),
-            }
-        })
+            },
+        )
     }
 }
 
@@ -111,14 +114,20 @@ mod test {
     fn test_get_program_kind_out_of_bound_index() {
         let mut test_store = ComputeBudgetProgramIdFilter::new();
         assert_eq!(
-            test_store
-                .get_program_kind(FILTER_SIZE as usize + 1, &DUMMY_PROGRAM_ID.parse().unwrap(), &FeatureSet::default()),
+            test_store.get_program_kind(
+                FILTER_SIZE as usize + 1,
+                &DUMMY_PROGRAM_ID.parse().unwrap(),
+                &FeatureSet::default()
+            ),
             ProgramKind::NotBuiltin
         );
 
         assert_eq!(
-            test_store
-                .get_program_kind(FILTER_SIZE as usize + 1, &DUMMY_PROGRAM_ID.parse().unwrap(), &FeatureSet::all_enabled()),
+            test_store.get_program_kind(
+                FILTER_SIZE as usize + 1,
+                &DUMMY_PROGRAM_ID.parse().unwrap(),
+                &FeatureSet::all_enabled()
+            ),
             ProgramKind::NotBuiltin
         );
     }
