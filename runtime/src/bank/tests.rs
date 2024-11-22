@@ -35,8 +35,12 @@ use {
     },
     solana_compute_budget::{
         compute_budget::ComputeBudget,
-        compute_budget_limits::{self, ComputeBudgetLimits, MAX_COMPUTE_UNIT_LIMIT},
+        compute_budget_limits::{
+            self, ComputeBudgetLimits, MAX_BUILTIN_ALLOCATION_COMPUTE_UNIT_LIMIT,
+            MAX_COMPUTE_UNIT_LIMIT,
+        },
     },
+    solana_cost_model::cost_model::CostModel,
     solana_feature_set::{self as feature_set, FeatureSet},
     solana_inline_spl::token,
     solana_logger,
@@ -13456,4 +13460,297 @@ fn test_rehash_bad() {
 
     // let the show begin
     bank.rehash();
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct TestResult {
+    // execution cost adjustment (eg estimated_execution_cost -
+    // actual_execution_cost) if *committed* successfully; Which always the case for our tests
+    cost_adjustment: i64,
+    // Ok(()) if transaction executed successfully, otherwise error
+    execution_status: Result<()>,
+}
+
+#[allow(dead_code)]
+struct TestSetup {
+    genesis_config: GenesisConfig,
+    mint_keypair: Keypair,
+    bank: Bank,
+    bank_forks: Arc<RwLock<BankForks>>,
+    amount: u64,
+}
+
+impl TestSetup {
+    fn new() -> Self {
+        let (mut genesis_config, mint_keypair) = create_genesis_config(sol_to_lamports(1.));
+        genesis_config.rent = Rent::default();
+        let (bank, bank_forks) = Bank::new_with_bank_forks_for_tests(&genesis_config);
+        let mut bank = Bank::new_from_parent(
+            bank,
+            &Pubkey::new_unique(),
+            genesis_config.epoch_schedule.get_first_slot_in_epoch(1),
+        );
+        bank.activate_feature(&feature_set::reserve_minimal_cus_for_builtin_instructions::id());
+
+        let amount = genesis_config.rent.minimum_balance(0);
+
+        Self {
+            genesis_config,
+            mint_keypair,
+            bank,
+            bank_forks,
+            amount,
+        }
+    }
+
+    fn install_memo_program_account(&mut self) {
+        self.bank.store_account(
+            &spl_memo::id(),
+            &AccountSharedData::from(Account {
+                lamports: u64::MAX,
+                // borrows memo elf for executing memo ix in order to set up test condition
+                data: include_bytes!("../../../program-test/src/programs/spl_memo-3.0.0.so")
+                    .to_vec(),
+                owner: bpf_loader::id(),
+                executable: true,
+                rent_epoch: 0,
+            }),
+        );
+    }
+
+    fn execute_test_transaction(&self, ixs: &[Instruction]) -> TestResult {
+        let tx = Transaction::new(
+            &[&self.mint_keypair],
+            Message::new(ixs, Some(&self.mint_keypair.pubkey())),
+            self.genesis_config.hash(),
+        );
+
+        let estimated_execution_cost = CostModel::calculate_cost(
+            &RuntimeTransaction::from_transaction_for_tests(tx.clone()),
+            &self.bank.feature_set,
+        )
+        .programs_execution_cost();
+
+        let batch = self.bank.prepare_batch_for_tests(vec![tx]);
+        let commit_result = self
+            .bank
+            .load_execute_and_commit_transactions(
+                &batch,
+                MAX_PROCESSING_AGE,
+                false,
+                ExecutionRecordingConfig::new_single_setting(false),
+                &mut ExecuteTimings::default(),
+                None,
+            )
+            .0
+            .remove(0);
+
+        match commit_result {
+            Ok(committed_tx) => TestResult {
+                cost_adjustment: estimated_execution_cost as i64
+                    - committed_tx.executed_units as i64,
+                execution_status: committed_tx.status,
+            },
+            Err(_err) => {
+                unreachable!(
+                    "All test Transactions should be well-formatted for execution and commit"
+                );
+            }
+        }
+    }
+
+    fn transfer_ix(&self) -> Instruction {
+        system_instruction::transfer(
+            &self.mint_keypair.pubkey(),
+            &Pubkey::new_unique(),
+            self.amount,
+        )
+    }
+
+    fn set_cu_limit_ix(&self, cu_limit: u32) -> Instruction {
+        ComputeBudgetInstruction::set_compute_unit_limit(cu_limit)
+    }
+
+    fn set_cu_price_ix(&self, cu_price: u64) -> Instruction {
+        ComputeBudgetInstruction::set_compute_unit_price(cu_price)
+    }
+
+    fn memo_ix(&self) -> (Instruction, u32) {
+        // construct a memo instruction that would consume more CU than DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT
+        let memo = "The quick brown fox jumped over the lazy dog. ".repeat(22) + "!";
+        let memo_ix = spl_memo::build_memo(memo.as_bytes(), &[]);
+        let memo_ix_cost = 356_963;
+
+        (memo_ix, memo_ix_cost)
+    }
+
+    fn create_lookup_table_ix(&self) -> Instruction {
+        let (create_lookup_table_ix, _lookup_table_address) =
+            solana_sdk::address_lookup_table::instruction::create_lookup_table(
+                self.mint_keypair.pubkey(),
+                self.mint_keypair.pubkey(),
+                0,
+            );
+
+        create_lookup_table_ix
+    }
+}
+
+#[test]
+fn test_builtin_ix_cost_adjustment_with_cu_limit_too_low() {
+    let test_setup = TestSetup::new();
+    let cu_limit = 1;
+
+    // transaction with no bpf instruction, has cu-limit explicitly set below required minimal;
+    // transaction should fail after consumed all requested CUs.
+    let expected = TestResult {
+        cost_adjustment: 0,
+        execution_status: Err(TransactionError::InstructionError(
+            0,
+            InstructionError::ComputationalBudgetExceeded,
+        )),
+    };
+
+    assert_eq!(
+        expected,
+        test_setup.execute_test_transaction(&[
+            test_setup.transfer_ix(),
+            test_setup.set_cu_limit_ix(cu_limit),
+        ])
+    );
+}
+
+#[test]
+fn test_builtin_ix_cost_adjustment_with_cu_limit_high() {
+    let test_setup = TestSetup::new();
+    let cu_limit: u32 = 500_000;
+
+    // transaction with cu-limit explicitly set more than actually needed, it shall succeed in
+    // execution, then adjust down by actual execution costs
+    let expected = TestResult {
+        cost_adjustment: cu_limit as i64
+            - solana_system_program::system_processor::DEFAULT_COMPUTE_UNITS as i64
+            - solana_compute_budget_program::DEFAULT_COMPUTE_UNITS as i64,
+        execution_status: Ok(()),
+    };
+
+    assert_eq!(
+        expected,
+        test_setup.execute_test_transaction(&[
+            test_setup.transfer_ix(),
+            test_setup.set_cu_limit_ix(cu_limit),
+        ])
+    );
+}
+
+#[test]
+fn test_builtin_ix_cost_adjustment_with_memo_no_cu_limit() {
+    let mut test_setup = TestSetup::new();
+    test_setup.install_memo_program_account();
+    let (memo_ix, _memo_ix_cost) = test_setup.memo_ix();
+
+    // memo_ix is setup to consume more CU than default 200K (memo_ix_cost is 356_963), without
+    // explicitly request more CUs, transaction shall fail due to exceeding budget, after consumed
+    // all allocated CUs. No cost adjustment.
+    let expected = TestResult {
+        cost_adjustment: 0,
+        execution_status: Err(TransactionError::InstructionError(
+            1,
+            InstructionError::ProgramFailedToComplete,
+        )),
+    };
+
+    assert_eq!(
+        expected,
+        test_setup.execute_test_transaction(&[test_setup.transfer_ix(), memo_ix])
+    );
+}
+
+#[test]
+fn test_builtin_ix_cost_adjustment_with_memo_and_cu_limit() {
+    let mut test_setup = TestSetup::new();
+    test_setup.install_memo_program_account();
+    let (memo_ix, memo_ix_cost) = test_setup.memo_ix();
+    // request exact amount CUs needed to execute a transafer, compute_budget and a memo ix
+    let cu_limit = memo_ix_cost
+        + solana_system_program::system_processor::DEFAULT_COMPUTE_UNITS as u32
+        + solana_compute_budget_program::DEFAULT_COMPUTE_UNITS as u32;
+
+    // memo_ix is setup to consume more CU than default 200K (memo_ix_cost is 356_963), without
+    // explicitly request more CUs, transaction shall fail due to exceeding budget, after consumed
+    // all allocated CUs. No cost adjustment.
+    let expected = TestResult {
+        cost_adjustment: 0,
+        execution_status: Ok(()),
+    };
+
+    assert_eq!(
+        expected,
+        test_setup.execute_test_transaction(&[
+            test_setup.transfer_ix(),
+            memo_ix,
+            test_setup.set_cu_limit_ix(cu_limit)
+        ])
+    );
+}
+
+#[test]
+fn test_builtin_ix_cost_adjustment_with_alt_no_cu_limit() {
+    let test_setup = TestSetup::new();
+
+    // Create lookup_table (which CPIs into System ixs) without explicitly request more CUs,
+    // it should succeed without cost adjustment
+    let expected = TestResult {
+        cost_adjustment: MAX_BUILTIN_ALLOCATION_COMPUTE_UNIT_LIMIT as i64
+            - solana_address_lookup_table_program::processor::DEFAULT_COMPUTE_UNITS as i64
+            - 3 * solana_system_program::system_processor::DEFAULT_COMPUTE_UNITS as i64,
+        execution_status: Ok(()),
+    };
+
+    assert_eq!(
+        expected,
+        test_setup.execute_test_transaction(&[test_setup.create_lookup_table_ix(),])
+    );
+}
+
+#[test]
+fn test_builtin_ix_cost_adjustment_with_alt_and_cu_limit_high() {
+    let test_setup = TestSetup::new();
+    let cu_limit = 500_000;
+    let tx_execution_cost = solana_address_lookup_table_program::processor::DEFAULT_COMPUTE_UNITS
+        + 3 * solana_system_program::system_processor::DEFAULT_COMPUTE_UNITS
+        + solana_compute_budget_program::DEFAULT_COMPUTE_UNITS;
+
+    // Create lookup_table (which CPIs into System) and explicitly sets high cu-limit, transaction should successfully
+    // executed, then cost track be adjusted down
+    let expected = TestResult {
+        cost_adjustment: cu_limit as i64 - tx_execution_cost as i64,
+        execution_status: Ok(()),
+    };
+
+    assert_eq!(
+        expected,
+        test_setup.execute_test_transaction(&[
+            test_setup.create_lookup_table_ix(),
+            test_setup.set_cu_limit_ix(cu_limit),
+        ])
+    );
+}
+
+#[test]
+fn test_builtin_ix_set_cu_price_only() {
+    let test_setup = TestSetup::new();
+
+    // Request CU price without setting cu_limit should succeed,
+    // cost adjustment by the diff of MAX 3K reserve and actual compute-budget ix cost
+    let expected = TestResult {
+        cost_adjustment: MAX_BUILTIN_ALLOCATION_COMPUTE_UNIT_LIMIT as i64
+            - solana_compute_budget_program::DEFAULT_COMPUTE_UNITS as i64,
+        execution_status: Ok(()),
+    };
+
+    assert_eq!(
+        expected,
+        test_setup.execute_test_transaction(&[test_setup.set_cu_price_ix(1)])
+    );
 }

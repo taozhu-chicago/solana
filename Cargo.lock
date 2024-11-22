@@ -8400,6 +8400,7 @@ dependencies = [
  "solana-zk-sdk",
  "solana-zk-token-proof-program",
  "solana-zk-token-sdk",
+ "spl-memo",
  "static_assertions",
  "strum",
  "strum_macros",
