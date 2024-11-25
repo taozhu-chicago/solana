@@ -5,7 +5,8 @@ use {
     lazy_static::lazy_static,
     solana_sdk::{
         address_lookup_table, bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable,
-        compute_budget, ed25519_program, loader_v4, pubkey::Pubkey, secp256k1_program,
+        compute_budget, ed25519_program, feature_set::FeatureSet, loader_v4, pubkey::Pubkey,
+        secp256k1_program,
     },
 };
 
@@ -20,7 +21,7 @@ lazy_static! {
     /// calculate the cost of a transaction which is used in replay to enforce
     /// block cost limits as of
     /// https://github.com/solana-labs/solana/issues/29595.
-    pub static ref BUILTIN_INSTRUCTION_COSTS: AHashMap<Pubkey, u64> = [
+    static ref BUILTIN_INSTRUCTION_COSTS: AHashMap<Pubkey, u64> = [
         (solana_stake_program::id(), solana_stake_program::stake_instruction::DEFAULT_COMPUTE_UNITS),
         (solana_config_program::id(), solana_config_program::config_processor::DEFAULT_COMPUTE_UNITS),
         (solana_vote_program::id(), solana_vote_program::vote_processor::DEFAULT_COMPUTE_UNITS),
@@ -53,4 +54,11 @@ lazy_static! {
             .for_each(|key| temp_table[key.as_ref()[0] as usize] = true);
         temp_table
     };
+}
+
+pub fn get_builtin_instruction_cost<'a>(
+    program_id: &'a Pubkey,
+    _feature_set: &'a FeatureSet,
+) -> Option<&'a u64> {
+    BUILTIN_INSTRUCTION_COSTS.get(program_id)
 }
