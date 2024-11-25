@@ -53,7 +53,7 @@ fn do_hash_find(setup: &BenchSetup) {
         let ix_execution_cost = if let Some(builtin_cost) =
             get_builtin_instruction_cost(&setup.pubkeys[idx], &setup.feature_set)
         {
-            *builtin_cost
+            builtin_cost
         } else {
             u64::from(DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT)
         };

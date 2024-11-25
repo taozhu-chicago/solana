@@ -29,7 +29,7 @@ impl ImmutableDeserializedPacket {
         let mut static_builtin_cost_sum: u64 = 0;
         for (program_id, _) in self.transaction().get_message().program_instructions_iter() {
             if let Some(ix_cost) = get_builtin_instruction_cost(program_id, &feature_set) {
-                saturating_add_assign!(static_builtin_cost_sum, *ix_cost);
+                saturating_add_assign!(static_builtin_cost_sum, ix_cost);
             }
         }
 

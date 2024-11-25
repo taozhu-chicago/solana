@@ -164,7 +164,7 @@ impl CostModel {
         for (program_id, instruction) in transaction.program_instructions_iter() {
             let ix_execution_cost =
                 if let Some(builtin_cost) = get_builtin_instruction_cost(program_id, feature_set) {
-                    *builtin_cost
+                    builtin_cost
                 } else {
                     has_user_space_instructions = true;
                     u64::from(DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT)

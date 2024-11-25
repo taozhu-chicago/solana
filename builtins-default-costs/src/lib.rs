@@ -147,20 +147,18 @@ lazy_static! {
 pub fn get_builtin_instruction_cost<'a>(
     program_id: &'a Pubkey,
     feature_set: &'a FeatureSet,
-) -> Option<&'a u64> {
+) -> Option<u64> {
     BUILTIN_INSTRUCTION_COSTS
         .get(program_id)
-        .map(|builtin_cost| {
-            builtin_cost
-                .sbpf_migration_feature
-                .map_or(&builtin_cost.native_cost, |feature_id| {
-                    if feature_set.is_active(&feature_id) {
-                        &0
-                    } else {
-                        &builtin_cost.native_cost
-                    }
-                })
-        })
+        .filter(
+            // Returns true if builtin program id has no sbpf_migration_feature or feature is not activated;
+            // otherwise returns false because it's not considered as builtin
+            |builtin_cost| -> bool {
+                builtin_cost.sbpf_migration_feature.is_none()
+                    || !feature_set.is_active(&builtin_cost.sbpf_migration_feature.unwrap())
+            },
+        )
+        .map(|builtin_cost| builtin_cost.native_cost)
 }
 
 #[cfg(test)]
@@ -171,21 +169,22 @@ mod test {
     fn test_get_builtin_instruction_cost() {
         // use native cost if no migration planned
         assert_eq!(
-            Some(&solana_compute_budget_program::DEFAULT_COMPUTE_UNITS),
+            Some(solana_compute_budget_program::DEFAULT_COMPUTE_UNITS),
             get_builtin_instruction_cost(&compute_budget::id(), &FeatureSet::all_enabled())
         );
 
         // use native cost if migration is planned but not activated
         assert_eq!(
-            Some(&solana_stake_program::stake_instruction::DEFAULT_COMPUTE_UNITS),
+            Some(solana_stake_program::stake_instruction::DEFAULT_COMPUTE_UNITS),
             get_builtin_instruction_cost(&solana_stake_program::id(), &FeatureSet::default())
         );
 
-        // zero cost if migration is planned and activated
-        assert_eq!(
-            Some(&0),
-            get_builtin_instruction_cost(&solana_stake_program::id(), &FeatureSet::all_enabled())
-        );
+        // None if migration is planned and activated, in which case, it's no longer builtin
+        assert!(get_builtin_instruction_cost(
+            &solana_stake_program::id(),
+            &FeatureSet::all_enabled()
+        )
+        .is_none());
 
         // None if not builtin
         assert!(
