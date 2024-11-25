@@ -162,3 +162,38 @@ pub fn get_builtin_instruction_cost<'a>(
                 })
         })
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_get_builtin_instruction_cost() {
+        // use native cost if no migration planned
+        assert_eq!(
+            Some(&solana_compute_budget_program::DEFAULT_COMPUTE_UNITS),
+            get_builtin_instruction_cost(&compute_budget::id(), &FeatureSet::all_enabled())
+        );
+
+        // use native cost if migration is planned but not activated
+        assert_eq!(
+            Some(&solana_stake_program::stake_instruction::DEFAULT_COMPUTE_UNITS),
+            get_builtin_instruction_cost(&solana_stake_program::id(), &FeatureSet::default())
+        );
+
+        // zero cost if migration is planned and activated
+        assert_eq!(
+            Some(&0),
+            get_builtin_instruction_cost(&solana_stake_program::id(), &FeatureSet::all_enabled())
+        );
+
+        // None if not builtin
+        assert!(
+            get_builtin_instruction_cost(&Pubkey::new_unique(), &FeatureSet::default()).is_none()
+        );
+        assert!(
+            get_builtin_instruction_cost(&Pubkey::new_unique(), &FeatureSet::all_enabled())
+                .is_none()
+        );
+    }
+}
