@@ -154,8 +154,10 @@ pub fn get_builtin_instruction_cost<'a>(
             // Returns true if builtin program id has no sbpf_migration_feature or feature is not activated;
             // otherwise returns false because it's not considered as builtin
             |builtin_cost| -> bool {
-                builtin_cost.sbpf_migration_feature.is_none()
-                    || !feature_set.is_active(&builtin_cost.sbpf_migration_feature.unwrap())
+                builtin_cost
+                    .sbpf_migration_feature
+                    .map(|feature_id| !feature_set.is_active(&feature_id))
+                    .unwrap_or(true)
             },
         )
         .map(|builtin_cost| builtin_cost.native_cost)
