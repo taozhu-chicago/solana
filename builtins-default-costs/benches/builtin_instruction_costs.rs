@@ -17,7 +17,6 @@ struct BenchSetup {
 }
 
 const NUM_TRANSACTIONS_PER_ITER: usize = 1024;
-const DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT: u32 = 200_000;
 
 fn setup(all_features_enabled: bool) -> BenchSetup {
     let pubkeys: [Pubkey; 12] = [
@@ -50,14 +49,7 @@ fn setup(all_features_enabled: bool) -> BenchSetup {
 fn do_hash_find(setup: &BenchSetup) {
     for _t in 0..NUM_TRANSACTIONS_PER_ITER {
         let idx = rand::thread_rng().gen_range(0..setup.pubkeys.len());
-        let ix_execution_cost = if let Some(builtin_cost) =
-            get_builtin_instruction_cost(&setup.pubkeys[idx], &setup.feature_set)
-        {
-            builtin_cost
-        } else {
-            u64::from(DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT)
-        };
-        assert!(ix_execution_cost != DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT as u64);
+        get_builtin_instruction_cost(&setup.pubkeys[idx], &setup.feature_set);
     }
 }
 

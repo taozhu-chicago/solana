@@ -21,7 +21,7 @@ use {
 #[derive(Clone)]
 struct BuiltinCost {
     native_cost: u64,
-    sbpf_migration_feature: Option<Pubkey>,
+    core_bpf_migration_feature: Option<Pubkey>,
 }
 
 // Number of compute units for each built-in programs
@@ -40,42 +40,42 @@ lazy_static! {
         solana_stake_program::id(),
         BuiltinCost {
             native_cost: solana_stake_program::stake_instruction::DEFAULT_COMPUTE_UNITS,
-            sbpf_migration_feature: Some(feature_set::migrate_stake_program_to_core_bpf::id()),
+            core_bpf_migration_feature: Some(feature_set::migrate_stake_program_to_core_bpf::id()),
         },
     ),
     (
         solana_config_program::id(),
         BuiltinCost {
             native_cost: solana_config_program::config_processor::DEFAULT_COMPUTE_UNITS,
-            sbpf_migration_feature: Some(feature_set::migrate_config_program_to_core_bpf::id()),
+            core_bpf_migration_feature: Some(feature_set::migrate_config_program_to_core_bpf::id()),
         },
     ),
     (
         solana_vote_program::id(),
         BuiltinCost {
             native_cost: solana_vote_program::vote_processor::DEFAULT_COMPUTE_UNITS,
-            sbpf_migration_feature: None,
+            core_bpf_migration_feature: None,
         },
     ),
     (
         solana_system_program::id(),
         BuiltinCost {
             native_cost: solana_system_program::system_processor::DEFAULT_COMPUTE_UNITS,
-            sbpf_migration_feature: None,
+            core_bpf_migration_feature: None,
         },
     ),
     (
         compute_budget::id(),
         BuiltinCost {
             native_cost: solana_compute_budget_program::DEFAULT_COMPUTE_UNITS,
-            sbpf_migration_feature: None,
+            core_bpf_migration_feature: None,
         },
     ),
     (
         address_lookup_table::program::id(),
         BuiltinCost {
             native_cost: solana_address_lookup_table_program::processor::DEFAULT_COMPUTE_UNITS,
-            sbpf_migration_feature: Some(
+            core_bpf_migration_feature: Some(
                 feature_set::migrate_address_lookup_table_program_to_core_bpf::id(),
             ),
         },
@@ -84,28 +84,28 @@ lazy_static! {
         bpf_loader_upgradeable::id(),
         BuiltinCost {
             native_cost: solana_bpf_loader_program::UPGRADEABLE_LOADER_COMPUTE_UNITS,
-            sbpf_migration_feature: None,
+            core_bpf_migration_feature: None,
         },
     ),
     (
         bpf_loader_deprecated::id(),
         BuiltinCost {
             native_cost: solana_bpf_loader_program::DEPRECATED_LOADER_COMPUTE_UNITS,
-            sbpf_migration_feature: None,
+            core_bpf_migration_feature: None,
         },
     ),
     (
         bpf_loader::id(),
         BuiltinCost {
             native_cost: solana_bpf_loader_program::DEFAULT_LOADER_COMPUTE_UNITS,
-            sbpf_migration_feature: None,
+            core_bpf_migration_feature: None,
         },
     ),
     (
         loader_v4::id(),
         BuiltinCost {
             native_cost: solana_loader_v4_program::DEFAULT_COMPUTE_UNITS,
-            sbpf_migration_feature: None,
+            core_bpf_migration_feature: None,
         },
     ),
     // Note: These are precompile, run directly in bank during sanitizing;
@@ -113,14 +113,14 @@ lazy_static! {
         secp256k1_program::id(),
         BuiltinCost {
             native_cost: 0,
-            sbpf_migration_feature: None,
+            core_bpf_migration_feature: None,
         },
     ),
     (
         ed25519_program::id(),
         BuiltinCost {
             native_cost: 0,
-            sbpf_migration_feature: None,
+            core_bpf_migration_feature: None,
         },
     ),
     // DO NOT ADD MORE ENTRIES TO THIS MAP
@@ -151,11 +151,11 @@ pub fn get_builtin_instruction_cost<'a>(
     BUILTIN_INSTRUCTION_COSTS
         .get(program_id)
         .filter(
-            // Returns true if builtin program id has no sbpf_migration_feature or feature is not activated;
+            // Returns true if builtin program id has no core_bpf_migration_feature or feature is not activated;
             // otherwise returns false because it's not considered as builtin
             |builtin_cost| -> bool {
                 builtin_cost
-                    .sbpf_migration_feature
+                    .core_bpf_migration_feature
                     .map(|feature_id| !feature_set.is_active(&feature_id))
                     .unwrap_or(true)
             },
