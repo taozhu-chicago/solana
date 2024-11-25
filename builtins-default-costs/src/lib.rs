@@ -24,17 +24,16 @@ struct BuiltinCost {
     core_bpf_migration_feature: Option<Pubkey>,
 }
 
-// Number of compute units for each built-in programs
 lazy_static! {
-/// Number of compute units for each built-in programs
-///
-/// DEVELOPER WARNING: This map CANNOT be modified without causing a
-/// consensus failure because this map is used to calculate the compute
-/// limit for transactions that don't specify a compute limit themselves as
-/// of https://github.com/anza-xyz/agave/issues/2212.  It's also used to
-/// calculate the cost of a transaction which is used in replay to enforce
-/// block cost limits as of
-/// https://github.com/solana-labs/solana/issues/29595.
+    /// Number of compute units for each built-in programs
+    ///
+    /// DEVELOPER WARNING: This map CANNOT be modified without causing a
+    /// consensus failure because this map is used to calculate the compute
+    /// limit for transactions that don't specify a compute limit themselves as
+    /// of https://github.com/anza-xyz/agave/issues/2212.  It's also used to
+    /// calculate the cost of a transaction which is used in replay to enforce
+    /// block cost limits as of
+    /// https://github.com/solana-labs/solana/issues/29595.
     static ref BUILTIN_INSTRUCTION_COSTS: AHashMap<Pubkey, BuiltinCost> = [
     (
         solana_stake_program::id(),
