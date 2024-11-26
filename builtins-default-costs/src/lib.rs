@@ -162,6 +162,12 @@ pub fn get_builtin_instruction_cost<'a>(
         .map(|builtin_cost| builtin_cost.native_cost)
 }
 
+pub fn get_builtin_core_bpf_migration_feature(program_id: &Pubkey) -> Option<Option<Pubkey>> {
+    BUILTIN_INSTRUCTION_COSTS
+        .get(program_id)
+        .map(|builtin_cost| builtin_cost.core_bpf_migration_feature)
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

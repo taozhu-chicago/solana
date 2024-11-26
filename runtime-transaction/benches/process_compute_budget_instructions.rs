@@ -3,6 +3,7 @@ use {
     solana_runtime_transaction::instructions_processor::process_compute_budget_instructions,
     solana_sdk::{
         compute_budget::ComputeBudgetInstruction,
+        feature_set::FeatureSet,
         instruction::Instruction,
         message::Message,
         pubkey::Pubkey,
@@ -28,15 +29,17 @@ fn build_sanitized_transaction(
 }
 
 fn bench_process_compute_budget_instructions_empty(c: &mut Criterion) {
+    let feature_set = FeatureSet::default();
     c.benchmark_group("bench_process_compute_budget_instructions_empty")
         .throughput(Throughput::Elements(NUM_TRANSACTIONS_PER_ITER as u64))
         .bench_function("0 instructions", |bencher| {
             let tx = build_sanitized_transaction(&Keypair::new(), &[]);
             bencher.iter(|| {
                 (0..NUM_TRANSACTIONS_PER_ITER).for_each(|_| {
-                    assert!(process_compute_budget_instructions(black_box(
-                        SVMMessage::program_instructions_iter(&tx)
-                    ))
+                    assert!(process_compute_budget_instructions(
+                        black_box(SVMMessage::program_instructions_iter(&tx)),
+                        black_box(&feature_set)
+                    )
                     .is_ok())
                 })
             });
@@ -44,6 +47,7 @@ fn bench_process_compute_budget_instructions_empty(c: &mut Criterion) {
 }
 
 fn bench_process_compute_budget_instructions_no_builtins(c: &mut Criterion) {
+    let feature_set = FeatureSet::default();
     let num_instructions = 4;
     c.benchmark_group("bench_process_compute_budget_instructions_no_builtins")
         .throughput(Throughput::Elements(NUM_TRANSACTIONS_PER_ITER as u64))
@@ -62,9 +66,10 @@ fn bench_process_compute_budget_instructions_no_builtins(c: &mut Criterion) {
                 let tx = build_sanitized_transaction(&Keypair::new(), &ixs);
                 bencher.iter(|| {
                     (0..NUM_TRANSACTIONS_PER_ITER).for_each(|_| {
-                        assert!(process_compute_budget_instructions(black_box(
-                            SVMMessage::program_instructions_iter(&tx)
-                        ))
+                        assert!(process_compute_budget_instructions(
+                            black_box(SVMMessage::program_instructions_iter(&tx)),
+                            black_box(&feature_set)
+                        )
                         .is_ok())
                     })
                 });
@@ -73,6 +78,7 @@ fn bench_process_compute_budget_instructions_no_builtins(c: &mut Criterion) {
 }
 
 fn bench_process_compute_budget_instructions_compute_budgets(c: &mut Criterion) {
+    let feature_set = FeatureSet::default();
     c.benchmark_group("bench_process_compute_budget_instructions_compute_budgets")
         .throughput(Throughput::Elements(NUM_TRANSACTIONS_PER_ITER as u64))
         .bench_function("4 compute-budget instructions", |bencher| {
@@ -85,9 +91,10 @@ fn bench_process_compute_budget_instructions_compute_budgets(c: &mut Criterion) 
             let tx = build_sanitized_transaction(&Keypair::new(), &ixs);
             bencher.iter(|| {
                 (0..NUM_TRANSACTIONS_PER_ITER).for_each(|_| {
-                    assert!(process_compute_budget_instructions(black_box(
-                        SVMMessage::program_instructions_iter(&tx)
-                    ))
+                    assert!(process_compute_budget_instructions(
+                        black_box(SVMMessage::program_instructions_iter(&tx)),
+                        black_box(&feature_set)
+                    )
                     .is_ok())
                 })
             });
@@ -95,6 +102,7 @@ fn bench_process_compute_budget_instructions_compute_budgets(c: &mut Criterion) 
 }
 
 fn bench_process_compute_budget_instructions_builtins(c: &mut Criterion) {
+    let feature_set = FeatureSet::default();
     c.benchmark_group("bench_process_compute_budget_instructions_builtins")
         .throughput(Throughput::Elements(NUM_TRANSACTIONS_PER_ITER as u64))
         .bench_function("4 dummy builtins", |bencher| {
@@ -111,9 +119,10 @@ fn bench_process_compute_budget_instructions_builtins(c: &mut Criterion) {
             let tx = build_sanitized_transaction(&Keypair::new(), &ixs);
             bencher.iter(|| {
                 (0..NUM_TRANSACTIONS_PER_ITER).for_each(|_| {
-                    assert!(process_compute_budget_instructions(black_box(
-                        SVMMessage::program_instructions_iter(&tx)
-                    ))
+                    assert!(process_compute_budget_instructions(
+                        black_box(SVMMessage::program_instructions_iter(&tx)),
+                        black_box(&feature_set)
+                    )
                     .is_ok())
                 })
             });
@@ -121,6 +130,7 @@ fn bench_process_compute_budget_instructions_builtins(c: &mut Criterion) {
 }
 
 fn bench_process_compute_budget_instructions_mixed(c: &mut Criterion) {
+    let feature_set = FeatureSet::default();
     let num_instructions = 355;
     c.benchmark_group("bench_process_compute_budget_instructions_mixed")
         .throughput(Throughput::Elements(NUM_TRANSACTIONS_PER_ITER as u64))
@@ -148,9 +158,10 @@ fn bench_process_compute_budget_instructions_mixed(c: &mut Criterion) {
 
                 bencher.iter(|| {
                     (0..NUM_TRANSACTIONS_PER_ITER).for_each(|_| {
-                        assert!(process_compute_budget_instructions(black_box(
-                            SVMMessage::program_instructions_iter(&tx)
-                        ))
+                        assert!(process_compute_budget_instructions(
+                            black_box(SVMMessage::program_instructions_iter(&tx)),
+                            black_box(&feature_set)
+                        )
                         .is_ok())
                     })
                 });
@@ -159,7 +170,16 @@ fn bench_process_compute_budget_instructions_mixed(c: &mut Criterion) {
 }
 
 fn bench_process_compute_budget_instructions_with_migrating_builtins(c: &mut Criterion) {
-    c.benchmark_group("bench_process_compute_budget_instructions_with_migrating_builtins")
+    let mut feature_set = FeatureSet::default();
+
+    for enabled_simd_170 in [true, false] {
+        if enabled_simd_170 {
+            feature_set.activate(
+                &solana_sdk::feature_set::reserve_minimal_cus_for_builtin_instructions::id(),
+                0,
+            );
+        }
+        c.benchmark_group(format!("bench_process_compute_budget_instructions_with_migrating_builtins, SIMD-170 activated: {}", enabled_simd_170))
         .throughput(Throughput::Elements(NUM_TRANSACTIONS_PER_ITER as u64))
         .bench_function("3 migrating builtins", |bencher| {
             let ixs = vec![
@@ -176,11 +196,12 @@ fn bench_process_compute_budget_instructions_with_migrating_builtins(c: &mut Cri
                 (0..NUM_TRANSACTIONS_PER_ITER).for_each(|_| {
                     assert!(process_compute_budget_instructions(black_box(
                         SVMMessage::program_instructions_iter(&tx)
-                    ))
+                    ), black_box(&feature_set))
                     .is_ok())
                 })
             });
         });
+    }
 }
 
 criterion_group!(

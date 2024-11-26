@@ -8425,6 +8425,7 @@ dependencies = [
  "solana-program",
  "solana-pubkey",
  "solana-sdk",
+ "solana-stake-program",
  "solana-svm-transaction",
  "thiserror 2.0.3",
 ]
