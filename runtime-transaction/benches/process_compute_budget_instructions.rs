@@ -158,6 +158,31 @@ fn bench_process_compute_budget_instructions_mixed(c: &mut Criterion) {
         );
 }
 
+fn bench_process_compute_budget_instructions_with_migrating_builtins(c: &mut Criterion) {
+    c.benchmark_group("bench_process_compute_budget_instructions_with_migrating_builtins")
+        .throughput(Throughput::Elements(NUM_TRANSACTIONS_PER_ITER as u64))
+        .bench_function("3 migrating builtins", |bencher| {
+            let ixs = vec![
+                Instruction::new_with_bincode(solana_sdk::stake::program::id(), &(), vec![]),
+                Instruction::new_with_bincode(solana_sdk::config::program::id(), &(), vec![]),
+                Instruction::new_with_bincode(
+                    solana_sdk::address_lookup_table::program::id(),
+                    &(),
+                    vec![],
+                ),
+            ];
+            let tx = build_sanitized_transaction(&Keypair::new(), &ixs);
+            bencher.iter(|| {
+                (0..NUM_TRANSACTIONS_PER_ITER).for_each(|_| {
+                    assert!(process_compute_budget_instructions(black_box(
+                        SVMMessage::program_instructions_iter(&tx)
+                    ))
+                    .is_ok())
+                })
+            });
+        });
+}
+
 criterion_group!(
     benches,
     bench_process_compute_budget_instructions_empty,
@@ -165,5 +190,6 @@ criterion_group!(
     bench_process_compute_budget_instructions_compute_budgets,
     bench_process_compute_budget_instructions_builtins,
     bench_process_compute_budget_instructions_mixed,
+    bench_process_compute_budget_instructions_with_migrating_builtins,
 );
 criterion_main!(benches);
