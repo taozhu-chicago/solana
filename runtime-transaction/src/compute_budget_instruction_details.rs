@@ -94,23 +94,11 @@ impl ComputeBudgetInstructionDetails {
             }
             .min(MAX_HEAP_FRAME_BYTES);
 
-        // evaluate MaybeBuiltin
-        let additional_num_non_builtin_instructions = self
-            .maybe_builtin
-            .iter()
-            .filter(|core_bpf_migration_feature| feature_set.is_active(core_bpf_migration_feature))
-            .count();
-
         // Calculate compute unit limit
         let compute_unit_limit = self
             .requested_compute_unit_limit
             .map_or_else(
-                || {
-                    self.calculate_default_compute_unit_limit(
-                        feature_set,
-                        additional_num_non_builtin_instructions,
-                    )
-                },
+                || self.calculate_default_compute_unit_limit(feature_set),
                 |(_index, requested_compute_unit_limit)| requested_compute_unit_limit,
             )
             .min(MAX_COMPUTE_UNIT_LIMIT);
@@ -213,17 +201,21 @@ impl ComputeBudgetInstructionDetails {
     }
 
     #[inline]
-    fn calculate_default_compute_unit_limit(
-        &self,
-        feature_set: &FeatureSet,
-        additional_num_non_builtin_instructions: usize,
-    ) -> u32 {
-        let additional_num_builtin_instructions = self
-            .maybe_builtin
-            .len()
-            .saturating_sub(additional_num_non_builtin_instructions);
-
+    fn calculate_default_compute_unit_limit(&self, feature_set: &FeatureSet) -> u32 {
         if feature_set.is_active(&feature_set::reserve_minimal_cus_for_builtin_instructions::id()) {
+            // evaluate MaybeBuiltin
+            let (additional_num_non_builtin_instructions, additional_num_builtin_instructions) =
+                self.maybe_builtin.iter().fold(
+                    (0, 0),
+                    |(migrated, builtin), core_bpf_migration_feature| {
+                        if feature_set.is_active(core_bpf_migration_feature) {
+                            (migrated + 1, builtin)
+                        } else {
+                            (migrated, builtin + 1)
+                        }
+                    },
+                );
+
             self.num_builtin_instructions(additional_num_builtin_instructions)
                 .saturating_mul(MAX_BUILTIN_ALLOCATION_COMPUTE_UNIT_LIMIT)
                 .saturating_add(
