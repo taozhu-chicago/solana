@@ -107,14 +107,29 @@ mod test {
             }
         );
 
-        // migrating builtin
-        index += 1;
-        assert_eq!(
-            test_store.get_program_kind(index, &solana_stake_program::id()),
-            ProgramKind::MaybeBuiltin {
-                core_bpf_migration_feature: feature_set::migrate_stake_program_to_core_bpf::id()
-            }
-        );
+        // migrating builtins
+        for (migrating_builtin_pubkey, migration_feature_id) in [
+            (
+                solana_sdk::stake::program::id(),
+                feature_set::migrate_stake_program_to_core_bpf::id(),
+            ),
+            (
+                solana_sdk::config::program::id(),
+                feature_set::migrate_config_program_to_core_bpf::id(),
+            ),
+            (
+                solana_sdk::address_lookup_table::program::id(),
+                feature_set::migrate_address_lookup_table_program_to_core_bpf::id(),
+            ),
+        ] {
+            index += 1;
+            assert_eq!(
+                test_store.get_program_kind(index, &migrating_builtin_pubkey),
+                ProgramKind::MaybeBuiltin {
+                    core_bpf_migration_feature: migration_feature_id
+                }
+            );
+        }
     }
 
     #[test]
