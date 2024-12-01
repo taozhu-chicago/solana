@@ -1,5 +1,6 @@
 use {
     crate::compute_budget_program_id_filter::{ComputeBudgetProgramIdFilter, ProgramKind},
+    solana_builtins_default_costs::MIGRATION_FEATURES_ID,
     solana_compute_budget::compute_budget_limits::*,
     solana_sdk::{
         borsh1::try_from_slice_unchecked,
@@ -16,7 +17,7 @@ use {
 
 #[cfg_attr(test, derive(Eq, PartialEq))]
 #[cfg_attr(feature = "dev-context-only-utils", derive(Clone))]
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub(crate) struct ComputeBudgetInstructionDetails {
     // compute-budget instruction details:
     // the first field in tuple is instruction index, second field is the unsanitized value set by user
@@ -28,8 +29,25 @@ pub(crate) struct ComputeBudgetInstructionDetails {
     num_compute_budget_instructions: u32,
     num_builtin_instructions: u32,
     num_non_builtin_instructions: u32,
-    // A list of migration feature IDs for builtin instructions
-    maybe_builtin: Vec<Pubkey>,
+    // The vector of counters, matching the size of the static vector MIGRATION_FEATURE_IDS,
+    // tracks the usage frequency of each feature ID, with each counter representing the
+    // number of times its corresponding feature ID is referenced in this transaction.
+    migrating_builtin: Vec<u32>,
+}
+
+impl Default for ComputeBudgetInstructionDetails {
+    fn default() -> Self {
+        Self {
+            requested_compute_unit_limit: None,
+            requested_compute_unit_price: None,
+            requested_heap_size: None,
+            requested_loaded_accounts_data_size_limit: None,
+            num_compute_budget_instructions: 0,
+            num_builtin_instructions: 0,
+            num_non_builtin_instructions: 0,
+            migrating_builtin: vec![0; MIGRATION_FEATURES_ID.len()],
+        }
+    }
 }
 
 impl ComputeBudgetInstructionDetails {
@@ -37,7 +55,6 @@ impl ComputeBudgetInstructionDetails {
         instructions: impl Iterator<Item = (&'a Pubkey, SVMInstruction<'a>)>,
     ) -> Result<Self> {
         let mut filter = ComputeBudgetProgramIdFilter::new();
-
         let mut compute_budget_instruction_details = ComputeBudgetInstructionDetails::default();
         for (i, (program_id, instruction)) in instructions.enumerate() {
             match filter.get_program_kind(instruction.program_id_index as usize, program_id) {
@@ -61,12 +78,18 @@ impl ComputeBudgetInstructionDetails {
                         1
                     );
                 }
-                ProgramKind::MaybeBuiltin {
-                    core_bpf_migration_feature,
+                ProgramKind::MigratingBuiltin {
+                    core_bpf_migration_feature_index,
                 } => {
-                    compute_budget_instruction_details
-                        .maybe_builtin
-                        .push(core_bpf_migration_feature);
+                    saturating_add_assign!(
+                        *compute_budget_instruction_details
+                            .migrating_builtin
+                            .get_mut(core_bpf_migration_feature_index)
+                            .expect(
+                                "migrating feature index within range of MIGRATION_FEATURE_IDS"
+                            ),
+                        1
+                    );
                 }
             }
         }
@@ -170,48 +193,37 @@ impl ComputeBudgetInstructionDetails {
     }
 
     #[inline]
-    fn num_builtin_instructions(&self, additional_num_builtin_instructions: usize) -> u32 {
-        self.num_builtin_instructions.saturating_add(
-            additional_num_builtin_instructions
-                .try_into()
-                .expect("Count too large for u32"),
-        )
+    fn num_builtin_instructions(&self, additional_num_builtin_instructions: u32) -> u32 {
+        self.num_builtin_instructions
+            .saturating_add(additional_num_builtin_instructions)
     }
 
     #[inline]
-    fn num_non_builtin_instructions(&self, additional_num_non_builtin_instructions: usize) -> u32 {
-        self.num_non_builtin_instructions.saturating_add(
-            additional_num_non_builtin_instructions
-                .try_into()
-                .expect("Count too large for u32"),
-        )
+    fn num_non_builtin_instructions(&self, additional_num_non_builtin_instructions: u32) -> u32 {
+        self.num_non_builtin_instructions
+            .saturating_add(additional_num_non_builtin_instructions)
     }
 
     #[inline]
     fn num_non_compute_budget_instructions(&self) -> u32 {
         self.num_builtin_instructions
             .saturating_add(self.num_non_builtin_instructions)
-            .saturating_add(
-                self.maybe_builtin
-                    .len()
-                    .try_into()
-                    .expect("size of maybe_builtin too large for u32"),
-            )
+            .saturating_add(self.migrating_builtin.iter().sum())
             .saturating_sub(self.num_compute_budget_instructions)
     }
 
     #[inline]
     fn calculate_default_compute_unit_limit(&self, feature_set: &FeatureSet) -> u32 {
         if feature_set.is_active(&feature_set::reserve_minimal_cus_for_builtin_instructions::id()) {
-            // evaluate MaybeBuiltin
+            // evaluate MigratingBuiltin
             let (additional_num_non_builtin_instructions, additional_num_builtin_instructions) =
-                self.maybe_builtin.iter().fold(
+                self.migrating_builtin.iter().enumerate().fold(
                     (0, 0),
-                    |(migrated, builtin), core_bpf_migration_feature| {
-                        if feature_set.is_active(core_bpf_migration_feature) {
-                            (migrated + 1, builtin)
+                    |(migrated, builtin), (index, count)| {
+                        if feature_set.is_active(&MIGRATION_FEATURES_ID[index]) {
+                            (migrated + count, builtin)
                         } else {
-                            (migrated, builtin + 1)
+                            (migrated, builtin + count)
                         }
                     },
                 );
@@ -597,11 +609,16 @@ mod test {
                 &Pubkey::new_unique(),
             ),
         ]);
-        let expected_details = Ok(ComputeBudgetInstructionDetails {
+        let feature_id_index = MIGRATION_FEATURES_ID
+            .iter()
+            .position(|id| *id == feature_set::migrate_stake_program_to_core_bpf::id())
+            .unwrap();
+        let mut expected_details = ComputeBudgetInstructionDetails {
             num_non_builtin_instructions: 1,
-            maybe_builtin: vec![feature_set::migrate_stake_program_to_core_bpf::id()],
             ..ComputeBudgetInstructionDetails::default()
-        });
+        };
+        expected_details.migrating_builtin[feature_id_index] = 1;
+        let expected_details = Ok(expected_details);
         let details =
             ComputeBudgetInstructionDetails::try_from(SVMMessage::program_instructions_iter(&tx));
         assert_eq!(details, expected_details);

@@ -1,18 +1,22 @@
 // static account keys has max
 use {
     agave_transaction_view::static_account_keys_frame::MAX_STATIC_ACCOUNTS_PER_PACKET as FILTER_SIZE,
-    solana_builtins_default_costs::{get_builtin_core_bpf_migration_feature, MAYBE_BUILTIN_KEY},
+    solana_builtins_default_costs::{get_builtin_migration_feature_index, MAYBE_BUILTIN_KEY},
     solana_sdk::pubkey::Pubkey,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum ProgramKind {
     NotBuiltin,
-    Builtin { is_compute_budget: bool },
+    Builtin {
+        is_compute_budget: bool,
+    },
     // Builtin program maybe in process of being migrated to core bpf,
     // if core_bpf_migration_feature is activated, then the migration has
     // completed and it should not longer be considered as builtin
-    MaybeBuiltin { core_bpf_migration_feature: Pubkey },
+    MigratingBuiltin {
+        core_bpf_migration_feature_index: usize,
+    },
 }
 
 pub(crate) struct ComputeBudgetProgramIdFilter {
@@ -44,11 +48,11 @@ impl ComputeBudgetProgramIdFilter {
             return ProgramKind::NotBuiltin;
         }
 
-        get_builtin_core_bpf_migration_feature(program_id).map_or(
+        get_builtin_migration_feature_index(program_id).map_or(
             ProgramKind::NotBuiltin,
             |core_bpf_migration_feature| match core_bpf_migration_feature {
-                Some(core_bpf_migration_feature) => ProgramKind::MaybeBuiltin {
-                    core_bpf_migration_feature,
+                Some(core_bpf_migration_feature_index) => ProgramKind::MigratingBuiltin {
+                    core_bpf_migration_feature_index,
                 },
                 None => ProgramKind::Builtin {
                     is_compute_budget: solana_sdk::compute_budget::check_id(program_id),
@@ -125,8 +129,12 @@ mod test {
             index += 1;
             assert_eq!(
                 test_store.get_program_kind(index, &migrating_builtin_pubkey),
-                ProgramKind::MaybeBuiltin {
-                    core_bpf_migration_feature: migration_feature_id
+                ProgramKind::MigratingBuiltin {
+                    core_bpf_migration_feature_index:
+                        solana_builtins_default_costs::MIGRATION_FEATURES_ID
+                            .iter()
+                            .position(|&x| x == migration_feature_id)
+                            .unwrap(),
                 }
             );
         }
