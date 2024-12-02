@@ -11,7 +11,7 @@ use {
 /// If succeeded, the transaction's specific limits/requests (could be default)
 /// are retrieved and returned,
 pub fn process_compute_budget_instructions<'a>(
-    instructions: impl Iterator<Item = (&'a Pubkey, SVMInstruction<'a>)>,
+    instructions: impl Iterator<Item = (&'a Pubkey, SVMInstruction<'a>)> + Clone,
     feature_set: &FeatureSet,
 ) -> Result<ComputeBudgetLimits, TransactionError> {
     ComputeBudgetInstructionDetails::try_from(instructions)?
