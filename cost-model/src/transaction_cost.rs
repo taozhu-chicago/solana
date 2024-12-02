@@ -186,7 +186,8 @@ impl solana_svm_transaction::svm_message::SVMMessage for WritableKeysTransaction
 
     fn program_instructions_iter(
         &self,
-    ) -> impl Iterator<Item = (&Pubkey, solana_svm_transaction::instruction::SVMInstruction)> {
+    ) -> impl Iterator<Item = (&Pubkey, solana_svm_transaction::instruction::SVMInstruction)> + Clone
+    {
         core::iter::empty()
     }
 
