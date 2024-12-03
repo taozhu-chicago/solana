@@ -34,6 +34,33 @@ impl ComputeBudgetProgramIdFilter {
     }
 
     #[inline]
+    pub(crate) fn is_compute_budget_program(&mut self, index: usize, program_id: &Pubkey) -> bool {
+        // Access the program kind at the given index, panic if index is invalid.
+        match self
+            .program_kind
+            .get(index)
+            .expect("program id index is sanitized")
+        {
+            // If the program kind is already set, check if it matches the target ProgramKind.
+            Some(program_kind) => {
+                *program_kind
+                    == ProgramKind::Builtin {
+                        is_compute_budget: true,
+                    }
+            }
+            // If the program kind is not set, calculate it, store it, and then check the condition.
+            None => {
+                let program_kind = Self::check_compute_bugdet_program_id(program_id);
+                self.program_kind[index] = program_kind;
+                program_kind
+                    == Some(ProgramKind::Builtin {
+                        is_compute_budget: true,
+                    })
+            }
+        }
+    }
+
+    #[inline]
     pub(crate) fn get_program_kind(&mut self, index: usize, program_id: &Pubkey) -> ProgramKind {
         *self
             .program_kind
@@ -43,11 +70,22 @@ impl ComputeBudgetProgramIdFilter {
     }
 
     #[inline]
-    fn check_program_kind(program_id: &Pubkey) -> ProgramKind {
+    fn check_compute_bugdet_program_id(program_id: &Pubkey) -> Option<ProgramKind> {
         if !MAYBE_BUILTIN_KEY[program_id.as_ref()[0] as usize] {
-            return ProgramKind::NotBuiltin;
+            return Some(ProgramKind::NotBuiltin);
         }
 
+        if solana_sdk::compute_budget::check_id(program_id) {
+            Some(ProgramKind::Builtin {
+                is_compute_budget: true,
+            })
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    fn check_program_kind(program_id: &Pubkey) -> ProgramKind {
         get_builtin_migration_feature_index(program_id).map_or(
             ProgramKind::NotBuiltin,
             |core_bpf_migration_feature| match core_bpf_migration_feature {
@@ -55,7 +93,8 @@ impl ComputeBudgetProgramIdFilter {
                     core_bpf_migration_feature_index,
                 },
                 None => ProgramKind::Builtin {
-                    is_compute_budget: solana_sdk::compute_budget::check_id(program_id),
+                    is_compute_budget: false, // already compute_budget ixs have been checked
+                                              // already
                 },
             },
         )

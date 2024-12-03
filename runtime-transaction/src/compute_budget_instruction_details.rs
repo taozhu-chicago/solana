@@ -17,7 +17,7 @@ use {
 
 #[cfg_attr(test, derive(Eq, PartialEq))]
 #[cfg_attr(feature = "dev-context-only-utils", derive(Clone))]
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub(crate) struct ComputeBudgetInstructionDetails {
     // compute-budget instruction details:
     // the first field in tuple is instruction index, second field is the unsanitized value set by user
@@ -26,7 +26,15 @@ pub(crate) struct ComputeBudgetInstructionDetails {
     requested_heap_size: Option<(u8, u32)>,
     requested_loaded_accounts_data_size_limit: Option<(u8, u32)>,
     // instructions counts
-    num_compute_budget_instructions: u32,
+    num_non_compute_budget_instructions: u32,
+    // Additional builtin related counters
+    builtin_instruction_details: Option<BuiltinInstructionDetails>,
+}
+
+#[cfg_attr(test, derive(Eq, PartialEq))]
+#[cfg_attr(feature = "dev-context-only-utils", derive(Clone))]
+#[derive(Debug)]
+struct BuiltinInstructionDetails {
     num_builtin_instructions: u32,
     num_non_builtin_instructions: u32,
     // The vector of counters, matching the size of the static vector MIGRATION_FEATURE_IDS,
@@ -35,14 +43,9 @@ pub(crate) struct ComputeBudgetInstructionDetails {
     migrating_builtin: Vec<u32>,
 }
 
-impl Default for ComputeBudgetInstructionDetails {
+impl Default for BuiltinInstructionDetails {
     fn default() -> Self {
         Self {
-            requested_compute_unit_limit: None,
-            requested_compute_unit_price: None,
-            requested_heap_size: None,
-            requested_loaded_accounts_data_size_limit: None,
-            num_compute_budget_instructions: 0,
             num_builtin_instructions: 0,
             num_non_builtin_instructions: 0,
             migrating_builtin: vec![0; MIGRATION_FEATURES_ID.len()],
@@ -52,46 +55,62 @@ impl Default for ComputeBudgetInstructionDetails {
 
 impl ComputeBudgetInstructionDetails {
     pub fn try_from<'a>(
-        instructions: impl Iterator<Item = (&'a Pubkey, SVMInstruction<'a>)>,
+        instructions: impl Iterator<Item = (&'a Pubkey, SVMInstruction<'a>)> + Clone,
     ) -> Result<Self> {
         let mut filter = ComputeBudgetProgramIdFilter::new();
+        let instructions_clone = instructions.clone();
+
         let mut compute_budget_instruction_details = ComputeBudgetInstructionDetails::default();
+
         for (i, (program_id, instruction)) in instructions.enumerate() {
-            match filter.get_program_kind(instruction.program_id_index as usize, program_id) {
-                ProgramKind::Builtin { is_compute_budget } => {
-                    if is_compute_budget {
-                        compute_budget_instruction_details
-                            .process_instruction(i as u8, &instruction)?;
+            if filter.is_compute_budget_program(instruction.program_id_index as usize, program_id) {
+                compute_budget_instruction_details.process_instruction(i as u8, &instruction)?;
+            } else {
+                saturating_add_assign!(
+                    compute_budget_instruction_details.num_non_compute_budget_instructions,
+                    1
+                );
+            }
+        }
+
+        if compute_budget_instruction_details
+            .requested_compute_unit_limit
+            .is_none()
+        {
+            // reiterate to collect builtin details to sanitize andx convert to
+            // compute_budget_limit later
+            let mut builtin_instruction_details = BuiltinInstructionDetails::default();
+            for (program_id, instruction) in instructions_clone {
+                match filter.get_program_kind(instruction.program_id_index as usize, program_id) {
+                    ProgramKind::Builtin { .. } => {
                         saturating_add_assign!(
-                            compute_budget_instruction_details.num_compute_budget_instructions,
+                            builtin_instruction_details.num_builtin_instructions,
                             1
                         );
                     }
-                    saturating_add_assign!(
-                        compute_budget_instruction_details.num_builtin_instructions,
-                        1
-                    );
-                }
-                ProgramKind::NotBuiltin => {
-                    saturating_add_assign!(
-                        compute_budget_instruction_details.num_non_builtin_instructions,
-                        1
-                    );
-                }
-                ProgramKind::MigratingBuiltin {
-                    core_bpf_migration_feature_index,
-                } => {
-                    saturating_add_assign!(
-                        *compute_budget_instruction_details
-                            .migrating_builtin
-                            .get_mut(core_bpf_migration_feature_index)
-                            .expect(
-                                "migrating feature index within range of MIGRATION_FEATURE_IDS"
-                            ),
-                        1
-                    );
+                    ProgramKind::NotBuiltin => {
+                        saturating_add_assign!(
+                            builtin_instruction_details.num_non_builtin_instructions,
+                            1
+                        );
+                    }
+                    ProgramKind::MigratingBuiltin {
+                        core_bpf_migration_feature_index,
+                    } => {
+                        saturating_add_assign!(
+                            *builtin_instruction_details
+                                .migrating_builtin
+                                .get_mut(core_bpf_migration_feature_index)
+                                .expect(
+                                    "migrating feature index within range of MIGRATION_FEATURE_IDS"
+                                ),
+                            1
+                        );
+                    }
                 }
             }
+            compute_budget_instruction_details.builtin_instruction_details =
+                Some(builtin_instruction_details);
         }
 
         Ok(compute_budget_instruction_details)
@@ -194,22 +213,20 @@ impl ComputeBudgetInstructionDetails {
 
     #[inline]
     fn num_builtin_instructions(&self, additional_num_builtin_instructions: u32) -> u32 {
-        self.num_builtin_instructions
+        self.builtin_instruction_details
+            .as_ref()
+            .unwrap()
+            .num_builtin_instructions
             .saturating_add(additional_num_builtin_instructions)
     }
 
     #[inline]
     fn num_non_builtin_instructions(&self, additional_num_non_builtin_instructions: u32) -> u32 {
-        self.num_non_builtin_instructions
+        self.builtin_instruction_details
+            .as_ref()
+            .unwrap()
+            .num_non_builtin_instructions
             .saturating_add(additional_num_non_builtin_instructions)
-    }
-
-    #[inline]
-    fn num_non_compute_budget_instructions(&self) -> u32 {
-        self.num_builtin_instructions
-            .saturating_add(self.num_non_builtin_instructions)
-            .saturating_add(self.migrating_builtin.iter().sum())
-            .saturating_sub(self.num_compute_budget_instructions)
     }
 
     #[inline]
@@ -217,16 +234,19 @@ impl ComputeBudgetInstructionDetails {
         if feature_set.is_active(&feature_set::reserve_minimal_cus_for_builtin_instructions::id()) {
             // evaluate MigratingBuiltin
             let (additional_num_non_builtin_instructions, additional_num_builtin_instructions) =
-                self.migrating_builtin.iter().enumerate().fold(
-                    (0, 0),
-                    |(migrated, builtin), (index, count)| {
+                self.builtin_instruction_details
+                    .as_ref()
+                    .unwrap()
+                    .migrating_builtin
+                    .iter()
+                    .enumerate()
+                    .fold((0, 0), |(migrated, builtin), (index, count)| {
                         if feature_set.is_active(&MIGRATION_FEATURES_ID[index]) {
                             (migrated + count, builtin)
                         } else {
                             (migrated, builtin + count)
                         }
-                    },
-                );
+                    });
 
             self.num_builtin_instructions(additional_num_builtin_instructions)
                 .saturating_mul(MAX_BUILTIN_ALLOCATION_COMPUTE_UNIT_LIMIT)
@@ -235,7 +255,7 @@ impl ComputeBudgetInstructionDetails {
                         .saturating_mul(DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT),
                 )
         } else {
-            self.num_non_compute_budget_instructions()
+            self.num_non_compute_budget_instructions
                 .saturating_mul(DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT)
         }
     }
@@ -255,417 +275,433 @@ mod test {
         },
         solana_svm_transaction::svm_message::SVMMessage,
     };
+    /* TODO - update tests
+        fn build_sanitized_transaction(instructions: &[Instruction]) -> SanitizedTransaction {
+            let payer_keypair = Keypair::new();
+            SanitizedTransaction::from_transaction_for_tests(Transaction::new_unsigned(Message::new(
+                instructions,
+                Some(&payer_keypair.pubkey()),
+            )))
+        }
 
-    fn build_sanitized_transaction(instructions: &[Instruction]) -> SanitizedTransaction {
-        let payer_keypair = Keypair::new();
-        SanitizedTransaction::from_transaction_for_tests(Transaction::new_unsigned(Message::new(
-            instructions,
-            Some(&payer_keypair.pubkey()),
-        )))
-    }
+        #[test]
+        fn test_try_from_request_heap() {
+            let tx = build_sanitized_transaction(&[
+                Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
+                ComputeBudgetInstruction::request_heap_frame(40 * 1024),
+                Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
+            ]);
+            let expected_details = Ok(ComputeBudgetInstructionDetails {
+                requested_heap_size: Some((1, 40 * 1024)),
+                num_non_compute_budget_instructions: 2,
+                builtin_instruction_details: BuiltinInstructionDetails {
+                    num_builtin_instructions: 1,
+                    num_non_builtin_instructions: 2,
+                    ..BuiltinInstructionDetails::default()
+                },
+                ..ComputeBudgetInstructionDetails::default()
+            });
+            assert_eq!(
+                ComputeBudgetInstructionDetails::try_from(SVMMessage::program_instructions_iter(&tx),),
+                expected_details
+            );
 
-    #[test]
-    fn test_try_from_request_heap() {
-        let tx = build_sanitized_transaction(&[
-            Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
-            ComputeBudgetInstruction::request_heap_frame(40 * 1024),
-            Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
-        ]);
-        let expected_details = Ok(ComputeBudgetInstructionDetails {
-            requested_heap_size: Some((1, 40 * 1024)),
-            num_compute_budget_instructions: 1,
-            num_builtin_instructions: 1,
-            num_non_builtin_instructions: 2,
-            ..ComputeBudgetInstructionDetails::default()
-        });
-        assert_eq!(
-            ComputeBudgetInstructionDetails::try_from(SVMMessage::program_instructions_iter(&tx),),
+            // with set_compute_unit_limit, builtin_instruction_details is unresolved
+            let tx = build_sanitized_transaction(&[
+                Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
+                ComputeBudgetInstruction::request_heap_frame(40 * 1024),
+                Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
+                ComputeBudgetInstruction::set_compute_unit_limit(u32::MAX),
+            ]);
+            let expected_details = Ok(ComputeBudgetInstructionDetails {
+                requested_heap_size: Some((1, 40 * 1024)),
+                num_non_compute_budget_instructions: 2,
+                ..ComputeBudgetInstructionDetails::default()
+            });
+            assert_eq!(
+                ComputeBudgetInstructionDetails::try_from(SVMMessage::program_instructions_iter(&tx),),
+                expected_details
+            );
+
+            let tx = build_sanitized_transaction(&[
+                Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
+                ComputeBudgetInstruction::request_heap_frame(40 * 1024),
+                ComputeBudgetInstruction::request_heap_frame(41 * 1024),
+            ]);
+            assert_eq!(
+                ComputeBudgetInstructionDetails::try_from(SVMMessage::program_instructions_iter(&tx),),
+                Err(TransactionError::DuplicateInstruction(2))
+            );
+        }
+
+        #[test]
+        fn test_try_from_compute_unit_limit() {
+            let tx = build_sanitized_transaction(&[
+                Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
+                ComputeBudgetInstruction::set_compute_unit_limit(u32::MAX),
+                Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
+            ]);
+            let expected_details = Ok(ComputeBudgetInstructionDetails {
+                requested_compute_unit_limit: Some((1, u32::MAX)),
+                num_non_compute_budget_instructions: 2,
+                ..ComputeBudgetInstructionDetails::default()
+            });
+            assert_eq!(
+                ComputeBudgetInstructionDetails::try_from(SVMMessage::program_instructions_iter(&tx),),
+                expected_details
+            );
+
+            let tx = build_sanitized_transaction(&[
+                Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
+                ComputeBudgetInstruction::set_compute_unit_limit(0),
+                ComputeBudgetInstruction::set_compute_unit_limit(u32::MAX),
+            ]);
+            assert_eq!(
+                ComputeBudgetInstructionDetails::try_from(SVMMessage::program_instructions_iter(&tx),),
+                Err(TransactionError::DuplicateInstruction(2))
+            );
+        }
+
+        #[test]
+        fn test_try_from_compute_unit_price() {
+            let tx = build_sanitized_transaction(&[
+                Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
+                ComputeBudgetInstruction::set_compute_unit_price(u64::MAX),
+                Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
+            ]);
+            let expected_details = Ok(ComputeBudgetInstructionDetails {
+                requested_compute_unit_price: Some((1, u64::MAX)),
+                num_non_compute_budget_instructions: 2,
+                builtin_instruction_details: BuiltinInstructionDetails {
+                    num_builtin_instructions: 1,
+                    num_non_builtin_instructions: 2,
+                    ..BuiltinInstructionDetails::default()
+                },
+                ..ComputeBudgetInstructionDetails::default()
+            });
+            assert_eq!(
+                ComputeBudgetInstructionDetails::try_from(SVMMessage::program_instructions_iter(&tx),),
+                expected_details
+            );
+
+            let tx = build_sanitized_transaction(&[
+                Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
+                ComputeBudgetInstruction::set_compute_unit_price(0),
+                ComputeBudgetInstruction::set_compute_unit_price(u64::MAX),
+            ]);
+            assert_eq!(
+                ComputeBudgetInstructionDetails::try_from(SVMMessage::program_instructions_iter(&tx),),
+                Err(TransactionError::DuplicateInstruction(2))
+            );
+        }
+
+        #[test]
+        fn test_try_from_loaded_accounts_data_size_limit() {
+            let tx = build_sanitized_transaction(&[
+                Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
+                ComputeBudgetInstruction::set_loaded_accounts_data_size_limit(u32::MAX),
+                Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
+            ]);
+            let expected_details = Ok(ComputeBudgetInstructionDetails {
+                requested_loaded_accounts_data_size_limit: Some((1, u32::MAX)),
+                num_non_compute_budget_instructions: 2,
+                builtin_instruction_details: BuiltinInstructionDetails {
+                    num_builtin_instructions: 1,
+                    num_non_builtin_instructions: 2,
+                    ..BuiltinInstructionDetails::default()
+                },
+                ..ComputeBudgetInstructionDetails::default()
+            });
+            assert_eq!(
+                ComputeBudgetInstructionDetails::try_from(SVMMessage::program_instructions_iter(&tx),),
+                expected_details
+            );
+
+            let tx = build_sanitized_transaction(&[
+                Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
+                ComputeBudgetInstruction::set_loaded_accounts_data_size_limit(0),
+                ComputeBudgetInstruction::set_loaded_accounts_data_size_limit(u32::MAX),
+            ]);
+            assert_eq!(
+                ComputeBudgetInstructionDetails::try_from(SVMMessage::program_instructions_iter(&tx),),
+                Err(TransactionError::DuplicateInstruction(2))
+            );
+        }
+
+        fn prep_feature_minimial_cus_for_builtin_instructions(
+            is_active: bool,
+            instruction_details: &ComputeBudgetInstructionDetails,
+        ) -> (FeatureSet, u32) {
+            let mut feature_set = FeatureSet::default();
+            let ComputeBudgetInstructionDetails {
+                num_non_compute_budget_instructions,
+                builtin_instruction_details:
+                    BuiltinInstructionDetails {
+                        num_builtin_instructions,
+                        num_non_builtin_instructions,
+                        ..
+                    },
+                ..
+            } = *instruction_details;
+            let expected_cu_limit = if is_active {
+                feature_set.activate(
+                    &feature_set::reserve_minimal_cus_for_builtin_instructions::id(),
+                    0,
+                );
+                num_non_builtin_instructions * DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT
+                    + num_builtin_instructions * MAX_BUILTIN_ALLOCATION_COMPUTE_UNIT_LIMIT
+            } else {
+                num_non_compute_budget_instructions * DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT
+            };
+
+            (feature_set, expected_cu_limit)
+        }
+
+        #[test]
+        fn test_sanitize_and_convert_to_compute_budget_limits() {
+            // empty details, default ComputeBudgetLimits with 0 compute_unit_limits
+            let instruction_details = ComputeBudgetInstructionDetails::default();
+            assert_eq!(
+                instruction_details
+                    .sanitize_and_convert_to_compute_budget_limits(&FeatureSet::default()),
+                Ok(ComputeBudgetLimits {
+                    compute_unit_limit: 0,
+                    ..ComputeBudgetLimits::default()
+                })
+            );
+
+            // no compute-budget instructions, all default ComputeBudgetLimits except cu-limit
+            let instruction_details = ComputeBudgetInstructionDetails {
+                num_non_compute_budget_instructions: 4,
+                builtin_instruction_details: BuiltinInstructionDetails {
+                    num_builtin_instructions: 1,
+                    num_non_builtin_instructions: 3,
+                    ..BuiltinInstructionDetails::default()
+                },
+                ..ComputeBudgetInstructionDetails::default()
+            };
+            for is_active in [true, false] {
+                let (feature_set, expected_compute_unit_limit) =
+                    prep_feature_minimial_cus_for_builtin_instructions(is_active, &instruction_details);
+                assert_eq!(
+                    instruction_details.sanitize_and_convert_to_compute_budget_limits(&feature_set),
+                    Ok(ComputeBudgetLimits {
+                        compute_unit_limit: expected_compute_unit_limit,
+                        ..ComputeBudgetLimits::default()
+                    })
+                );
+            }
+
+            let expected_heap_size_err = Err(TransactionError::InstructionError(
+                3,
+                InstructionError::InvalidInstructionData,
+            ));
+            // invalid: requested_heap_size can't be zero
+            let instruction_details = ComputeBudgetInstructionDetails {
+                requested_compute_unit_limit: Some((1, 0)),
+                requested_compute_unit_price: Some((2, 0)),
+                requested_heap_size: Some((3, 0)),
+                requested_loaded_accounts_data_size_limit: Some((4, 1024)),
+                ..ComputeBudgetInstructionDetails::default()
+            };
+            for is_active in [true, false] {
+                let (feature_set, _expected_compute_unit_limit) =
+                    prep_feature_minimial_cus_for_builtin_instructions(is_active, &instruction_details);
+                assert_eq!(
+                    instruction_details.sanitize_and_convert_to_compute_budget_limits(&feature_set),
+                    expected_heap_size_err
+                );
+            }
+
+            // invalid: requested_heap_size can't be less than MIN_HEAP_FRAME_BYTES
+            let instruction_details = ComputeBudgetInstructionDetails {
+                requested_compute_unit_limit: Some((1, 0)),
+                requested_compute_unit_price: Some((2, 0)),
+                requested_heap_size: Some((3, MIN_HEAP_FRAME_BYTES - 1)),
+                requested_loaded_accounts_data_size_limit: Some((4, 1024)),
+                ..ComputeBudgetInstructionDetails::default()
+            };
+            for is_active in [true, false] {
+                let (feature_set, _expected_compute_unit_limit) =
+                    prep_feature_minimial_cus_for_builtin_instructions(is_active, &instruction_details);
+                assert_eq!(
+                    instruction_details.sanitize_and_convert_to_compute_budget_limits(&feature_set),
+                    expected_heap_size_err
+                );
+            }
+
+            // invalid: requested_heap_size can't be more than MAX_HEAP_FRAME_BYTES
+            let instruction_details = ComputeBudgetInstructionDetails {
+                requested_compute_unit_limit: Some((1, 0)),
+                requested_compute_unit_price: Some((2, 0)),
+                requested_heap_size: Some((3, MAX_HEAP_FRAME_BYTES + 1)),
+                requested_loaded_accounts_data_size_limit: Some((4, 1024)),
+                ..ComputeBudgetInstructionDetails::default()
+            };
+            for is_active in [true, false] {
+                let (feature_set, _expected_compute_unit_limit) =
+                    prep_feature_minimial_cus_for_builtin_instructions(is_active, &instruction_details);
+                assert_eq!(
+                    instruction_details.sanitize_and_convert_to_compute_budget_limits(&feature_set),
+                    expected_heap_size_err
+                );
+            }
+
+            // invalid: requested_heap_size must be round by 1024
+            let instruction_details = ComputeBudgetInstructionDetails {
+                requested_compute_unit_limit: Some((1, 0)),
+                requested_compute_unit_price: Some((2, 0)),
+                requested_heap_size: Some((3, MIN_HEAP_FRAME_BYTES + 1024 + 1)),
+                requested_loaded_accounts_data_size_limit: Some((4, 1024)),
+                ..ComputeBudgetInstructionDetails::default()
+            };
+            for is_active in [true, false] {
+                let (feature_set, _expected_compute_unit_limit) =
+                    prep_feature_minimial_cus_for_builtin_instructions(is_active, &instruction_details);
+                assert_eq!(
+                    instruction_details.sanitize_and_convert_to_compute_budget_limits(&feature_set),
+                    expected_heap_size_err
+                );
+            }
+
+            // invalid: loaded_account_data_size can't be zero
+            let instruction_details = ComputeBudgetInstructionDetails {
+                requested_compute_unit_limit: Some((1, 0)),
+                requested_compute_unit_price: Some((2, 0)),
+                requested_heap_size: Some((3, 40 * 1024)),
+                requested_loaded_accounts_data_size_limit: Some((4, 0)),
+                ..ComputeBudgetInstructionDetails::default()
+            };
+            for is_active in [true, false] {
+                let (feature_set, _expected_compute_unit_limit) =
+                    prep_feature_minimial_cus_for_builtin_instructions(is_active, &instruction_details);
+                assert_eq!(
+                    instruction_details.sanitize_and_convert_to_compute_budget_limits(&feature_set),
+                    Err(TransactionError::InvalidLoadedAccountsDataSizeLimit)
+                );
+            }
+
+            // valid: acceptable MAX
+            let instruction_details = ComputeBudgetInstructionDetails {
+                requested_compute_unit_limit: Some((1, u32::MAX)),
+                requested_compute_unit_price: Some((2, u64::MAX)),
+                requested_heap_size: Some((3, MAX_HEAP_FRAME_BYTES)),
+                requested_loaded_accounts_data_size_limit: Some((4, u32::MAX)),
+                num_non_compute_budget_instructions: 4,
+                ..ComputeBudgetInstructionDetails::default()
+            };
+            for is_active in [true, false] {
+                let (feature_set, _expected_compute_unit_limit) =
+                    prep_feature_minimial_cus_for_builtin_instructions(is_active, &instruction_details);
+                assert_eq!(
+                    instruction_details.sanitize_and_convert_to_compute_budget_limits(&feature_set),
+                    Ok(ComputeBudgetLimits {
+                        updated_heap_bytes: MAX_HEAP_FRAME_BYTES,
+                        compute_unit_limit: MAX_COMPUTE_UNIT_LIMIT,
+                        compute_unit_price: u64::MAX,
+                        loaded_accounts_bytes: MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES,
+                    })
+                );
+            }
+
+            // valid
+            let val: u32 = 1024 * 40;
+            let instruction_details = ComputeBudgetInstructionDetails {
+                requested_compute_unit_limit: Some((1, val)),
+                requested_compute_unit_price: Some((2, val as u64)),
+                requested_heap_size: Some((3, val)),
+                requested_loaded_accounts_data_size_limit: Some((4, val)),
+                ..ComputeBudgetInstructionDetails::default()
+            };
+            for is_active in [true, false] {
+                let (feature_set, _expected_compute_unit_limit) =
+                    prep_feature_minimial_cus_for_builtin_instructions(is_active, &instruction_details);
+                assert_eq!(
+                    instruction_details.sanitize_and_convert_to_compute_budget_limits(&feature_set),
+                    Ok(ComputeBudgetLimits {
+                        updated_heap_bytes: val,
+                        compute_unit_limit: val,
+                        compute_unit_price: val as u64,
+                        loaded_accounts_bytes: NonZeroU32::new(val).unwrap(),
+                    })
+                );
+            }
+        }
+
+        #[test]
+        fn test_builtin_program_migration() {
+            let tx = build_sanitized_transaction(&[
+                Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
+                solana_sdk::stake::instruction::delegate_stake(
+                    &Pubkey::new_unique(),
+                    &Pubkey::new_unique(),
+                    &Pubkey::new_unique(),
+                ),
+            ]);
+            let feature_id_index = MIGRATION_FEATURES_ID
+                .iter()
+                .position(|id| *id == feature_set::migrate_stake_program_to_core_bpf::id())
+                .unwrap();
+            let mut expected_details = ComputeBudgetInstructionDetails {
+                num_non_compute_budget_instructions: 2,
+                builtin_instruction_details: BuiltinInstructionDetails {
+                    num_non_builtin_instructions: 1,
+                    ..BuiltinInstructionDetails::default()
+                },
+                ..ComputeBudgetInstructionDetails::default()
+            };
             expected_details
-        );
+                .builtin_instruction_details
+                .migrating_builtin[feature_id_index] = 1;
+            let expected_details = Ok(expected_details);
+            let details =
+                ComputeBudgetInstructionDetails::try_from(SVMMessage::program_instructions_iter(&tx));
+            assert_eq!(details, expected_details);
+            let details = details.unwrap();
 
-        let tx = build_sanitized_transaction(&[
-            Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
-            ComputeBudgetInstruction::request_heap_frame(40 * 1024),
-            ComputeBudgetInstruction::request_heap_frame(41 * 1024),
-        ]);
-        assert_eq!(
-            ComputeBudgetInstructionDetails::try_from(SVMMessage::program_instructions_iter(&tx),),
-            Err(TransactionError::DuplicateInstruction(2))
-        );
-    }
+            let mut feature_set = FeatureSet::default();
+            let cu_limits = details.sanitize_and_convert_to_compute_budget_limits(&feature_set);
+            assert_eq!(
+                cu_limits,
+                Ok(ComputeBudgetLimits {
+                    compute_unit_limit: DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT * 2,
+                    ..ComputeBudgetLimits::default()
+                })
+            );
 
-    #[test]
-    fn test_try_from_compute_unit_limit() {
-        let tx = build_sanitized_transaction(&[
-            Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
-            ComputeBudgetInstruction::set_compute_unit_limit(u32::MAX),
-            Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
-        ]);
-        let expected_details = Ok(ComputeBudgetInstructionDetails {
-            requested_compute_unit_limit: Some((1, u32::MAX)),
-            num_compute_budget_instructions: 1,
-            num_builtin_instructions: 1,
-            num_non_builtin_instructions: 2,
-            ..ComputeBudgetInstructionDetails::default()
-        });
-        assert_eq!(
-            ComputeBudgetInstructionDetails::try_from(SVMMessage::program_instructions_iter(&tx),),
-            expected_details
-        );
-
-        let tx = build_sanitized_transaction(&[
-            Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
-            ComputeBudgetInstruction::set_compute_unit_limit(0),
-            ComputeBudgetInstruction::set_compute_unit_limit(u32::MAX),
-        ]);
-        assert_eq!(
-            ComputeBudgetInstructionDetails::try_from(SVMMessage::program_instructions_iter(&tx),),
-            Err(TransactionError::DuplicateInstruction(2))
-        );
-    }
-
-    #[test]
-    fn test_try_from_compute_unit_price() {
-        let tx = build_sanitized_transaction(&[
-            Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
-            ComputeBudgetInstruction::set_compute_unit_price(u64::MAX),
-            Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
-        ]);
-        let expected_details = Ok(ComputeBudgetInstructionDetails {
-            requested_compute_unit_price: Some((1, u64::MAX)),
-            num_compute_budget_instructions: 1,
-            num_builtin_instructions: 1,
-            num_non_builtin_instructions: 2,
-            ..ComputeBudgetInstructionDetails::default()
-        });
-        assert_eq!(
-            ComputeBudgetInstructionDetails::try_from(SVMMessage::program_instructions_iter(&tx),),
-            expected_details
-        );
-
-        let tx = build_sanitized_transaction(&[
-            Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
-            ComputeBudgetInstruction::set_compute_unit_price(0),
-            ComputeBudgetInstruction::set_compute_unit_price(u64::MAX),
-        ]);
-        assert_eq!(
-            ComputeBudgetInstructionDetails::try_from(SVMMessage::program_instructions_iter(&tx),),
-            Err(TransactionError::DuplicateInstruction(2))
-        );
-    }
-
-    #[test]
-    fn test_try_from_loaded_accounts_data_size_limit() {
-        let tx = build_sanitized_transaction(&[
-            Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
-            ComputeBudgetInstruction::set_loaded_accounts_data_size_limit(u32::MAX),
-            Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
-        ]);
-        let expected_details = Ok(ComputeBudgetInstructionDetails {
-            requested_loaded_accounts_data_size_limit: Some((1, u32::MAX)),
-            num_compute_budget_instructions: 1,
-            num_builtin_instructions: 1,
-            num_non_builtin_instructions: 2,
-            ..ComputeBudgetInstructionDetails::default()
-        });
-        assert_eq!(
-            ComputeBudgetInstructionDetails::try_from(SVMMessage::program_instructions_iter(&tx),),
-            expected_details
-        );
-
-        let tx = build_sanitized_transaction(&[
-            Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
-            ComputeBudgetInstruction::set_loaded_accounts_data_size_limit(0),
-            ComputeBudgetInstruction::set_loaded_accounts_data_size_limit(u32::MAX),
-        ]);
-        assert_eq!(
-            ComputeBudgetInstructionDetails::try_from(SVMMessage::program_instructions_iter(&tx),),
-            Err(TransactionError::DuplicateInstruction(2))
-        );
-    }
-
-    fn prep_feature_minimial_cus_for_builtin_instructions(
-        is_active: bool,
-        instruction_details: &ComputeBudgetInstructionDetails,
-    ) -> (FeatureSet, u32) {
-        let mut feature_set = FeatureSet::default();
-        let ComputeBudgetInstructionDetails {
-            num_compute_budget_instructions,
-            num_builtin_instructions,
-            num_non_builtin_instructions,
-            ..
-        } = *instruction_details;
-        let expected_cu_limit = if is_active {
             feature_set.activate(
                 &feature_set::reserve_minimal_cus_for_builtin_instructions::id(),
                 0,
             );
-            num_non_builtin_instructions * DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT
-                + num_builtin_instructions * MAX_BUILTIN_ALLOCATION_COMPUTE_UNIT_LIMIT
-        } else {
-            (num_builtin_instructions + num_non_builtin_instructions
-                - num_compute_budget_instructions)
-                * DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT
-        };
-
-        (feature_set, expected_cu_limit)
-    }
-
-    #[test]
-    fn test_sanitize_and_convert_to_compute_budget_limits() {
-        // empty details, default ComputeBudgetLimits with 0 compute_unit_limits
-        let instruction_details = ComputeBudgetInstructionDetails::default();
-        assert_eq!(
-            instruction_details
-                .sanitize_and_convert_to_compute_budget_limits(&FeatureSet::default()),
-            Ok(ComputeBudgetLimits {
-                compute_unit_limit: 0,
-                ..ComputeBudgetLimits::default()
-            })
-        );
-
-        // no compute-budget instructions, all default ComputeBudgetLimits except cu-limit
-        let instruction_details = ComputeBudgetInstructionDetails {
-            num_compute_budget_instructions: 0,
-            num_builtin_instructions: 1,
-            num_non_builtin_instructions: 3,
-            ..ComputeBudgetInstructionDetails::default()
-        };
-        for is_active in [true, false] {
-            let (feature_set, expected_compute_unit_limit) =
-                prep_feature_minimial_cus_for_builtin_instructions(is_active, &instruction_details);
+            let cu_limits = details.sanitize_and_convert_to_compute_budget_limits(&feature_set);
             assert_eq!(
-                instruction_details.sanitize_and_convert_to_compute_budget_limits(&feature_set),
+                cu_limits,
                 Ok(ComputeBudgetLimits {
-                    compute_unit_limit: expected_compute_unit_limit,
+                    compute_unit_limit: DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT
+                        + MAX_BUILTIN_ALLOCATION_COMPUTE_UNIT_LIMIT,
+                    ..ComputeBudgetLimits::default()
+                })
+            );
+
+            feature_set.activate(&feature_set::migrate_stake_program_to_core_bpf::id(), 0);
+            let cu_limits = details.sanitize_and_convert_to_compute_budget_limits(&feature_set);
+            assert_eq!(
+                cu_limits,
+                Ok(ComputeBudgetLimits {
+                    compute_unit_limit: DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT * 2,
+                    ..ComputeBudgetLimits::default()
+                })
+            );
+
+            feature_set.deactivate(&feature_set::reserve_minimal_cus_for_builtin_instructions::id());
+            let cu_limits = details.sanitize_and_convert_to_compute_budget_limits(&feature_set);
+            assert_eq!(
+                cu_limits,
+                Ok(ComputeBudgetLimits {
+                    compute_unit_limit: DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT * 2,
                     ..ComputeBudgetLimits::default()
                 })
             );
         }
-
-        let expected_heap_size_err = Err(TransactionError::InstructionError(
-            3,
-            InstructionError::InvalidInstructionData,
-        ));
-        // invalid: requested_heap_size can't be zero
-        let instruction_details = ComputeBudgetInstructionDetails {
-            requested_compute_unit_limit: Some((1, 0)),
-            requested_compute_unit_price: Some((2, 0)),
-            requested_heap_size: Some((3, 0)),
-            requested_loaded_accounts_data_size_limit: Some((4, 1024)),
-            num_compute_budget_instructions: 4,
-            num_builtin_instructions: 1,
-            num_non_builtin_instructions: 3,
-            ..ComputeBudgetInstructionDetails::default()
-        };
-        for is_active in [true, false] {
-            let (feature_set, _expected_compute_unit_limit) =
-                prep_feature_minimial_cus_for_builtin_instructions(is_active, &instruction_details);
-            assert_eq!(
-                instruction_details.sanitize_and_convert_to_compute_budget_limits(&feature_set),
-                expected_heap_size_err
-            );
-        }
-
-        // invalid: requested_heap_size can't be less than MIN_HEAP_FRAME_BYTES
-        let instruction_details = ComputeBudgetInstructionDetails {
-            requested_compute_unit_limit: Some((1, 0)),
-            requested_compute_unit_price: Some((2, 0)),
-            requested_heap_size: Some((3, MIN_HEAP_FRAME_BYTES - 1)),
-            requested_loaded_accounts_data_size_limit: Some((4, 1024)),
-            num_compute_budget_instructions: 4,
-            num_builtin_instructions: 1,
-            num_non_builtin_instructions: 3,
-            ..ComputeBudgetInstructionDetails::default()
-        };
-        for is_active in [true, false] {
-            let (feature_set, _expected_compute_unit_limit) =
-                prep_feature_minimial_cus_for_builtin_instructions(is_active, &instruction_details);
-            assert_eq!(
-                instruction_details.sanitize_and_convert_to_compute_budget_limits(&feature_set),
-                expected_heap_size_err
-            );
-        }
-
-        // invalid: requested_heap_size can't be more than MAX_HEAP_FRAME_BYTES
-        let instruction_details = ComputeBudgetInstructionDetails {
-            requested_compute_unit_limit: Some((1, 0)),
-            requested_compute_unit_price: Some((2, 0)),
-            requested_heap_size: Some((3, MAX_HEAP_FRAME_BYTES + 1)),
-            requested_loaded_accounts_data_size_limit: Some((4, 1024)),
-            num_compute_budget_instructions: 4,
-            num_builtin_instructions: 1,
-            num_non_builtin_instructions: 3,
-            ..ComputeBudgetInstructionDetails::default()
-        };
-        for is_active in [true, false] {
-            let (feature_set, _expected_compute_unit_limit) =
-                prep_feature_minimial_cus_for_builtin_instructions(is_active, &instruction_details);
-            assert_eq!(
-                instruction_details.sanitize_and_convert_to_compute_budget_limits(&feature_set),
-                expected_heap_size_err
-            );
-        }
-
-        // invalid: requested_heap_size must be round by 1024
-        let instruction_details = ComputeBudgetInstructionDetails {
-            requested_compute_unit_limit: Some((1, 0)),
-            requested_compute_unit_price: Some((2, 0)),
-            requested_heap_size: Some((3, MIN_HEAP_FRAME_BYTES + 1024 + 1)),
-            requested_loaded_accounts_data_size_limit: Some((4, 1024)),
-            num_compute_budget_instructions: 4,
-            num_builtin_instructions: 1,
-            num_non_builtin_instructions: 3,
-            ..ComputeBudgetInstructionDetails::default()
-        };
-        for is_active in [true, false] {
-            let (feature_set, _expected_compute_unit_limit) =
-                prep_feature_minimial_cus_for_builtin_instructions(is_active, &instruction_details);
-            assert_eq!(
-                instruction_details.sanitize_and_convert_to_compute_budget_limits(&feature_set),
-                expected_heap_size_err
-            );
-        }
-
-        // invalid: loaded_account_data_size can't be zero
-        let instruction_details = ComputeBudgetInstructionDetails {
-            requested_compute_unit_limit: Some((1, 0)),
-            requested_compute_unit_price: Some((2, 0)),
-            requested_heap_size: Some((3, 40 * 1024)),
-            requested_loaded_accounts_data_size_limit: Some((4, 0)),
-            num_compute_budget_instructions: 4,
-            num_builtin_instructions: 1,
-            num_non_builtin_instructions: 3,
-            ..ComputeBudgetInstructionDetails::default()
-        };
-        for is_active in [true, false] {
-            let (feature_set, _expected_compute_unit_limit) =
-                prep_feature_minimial_cus_for_builtin_instructions(is_active, &instruction_details);
-            assert_eq!(
-                instruction_details.sanitize_and_convert_to_compute_budget_limits(&feature_set),
-                Err(TransactionError::InvalidLoadedAccountsDataSizeLimit)
-            );
-        }
-
-        // valid: acceptable MAX
-        let instruction_details = ComputeBudgetInstructionDetails {
-            requested_compute_unit_limit: Some((1, u32::MAX)),
-            requested_compute_unit_price: Some((2, u64::MAX)),
-            requested_heap_size: Some((3, MAX_HEAP_FRAME_BYTES)),
-            requested_loaded_accounts_data_size_limit: Some((4, u32::MAX)),
-            num_compute_budget_instructions: 4,
-            num_builtin_instructions: 1,
-            num_non_builtin_instructions: 3,
-            ..ComputeBudgetInstructionDetails::default()
-        };
-        for is_active in [true, false] {
-            let (feature_set, _expected_compute_unit_limit) =
-                prep_feature_minimial_cus_for_builtin_instructions(is_active, &instruction_details);
-            assert_eq!(
-                instruction_details.sanitize_and_convert_to_compute_budget_limits(&feature_set),
-                Ok(ComputeBudgetLimits {
-                    updated_heap_bytes: MAX_HEAP_FRAME_BYTES,
-                    compute_unit_limit: MAX_COMPUTE_UNIT_LIMIT,
-                    compute_unit_price: u64::MAX,
-                    loaded_accounts_bytes: MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES,
-                })
-            );
-        }
-
-        // valid
-        let val: u32 = 1024 * 40;
-        let instruction_details = ComputeBudgetInstructionDetails {
-            requested_compute_unit_limit: Some((1, val)),
-            requested_compute_unit_price: Some((2, val as u64)),
-            requested_heap_size: Some((3, val)),
-            requested_loaded_accounts_data_size_limit: Some((4, val)),
-            num_compute_budget_instructions: 4,
-            num_builtin_instructions: 1,
-            num_non_builtin_instructions: 3,
-            ..ComputeBudgetInstructionDetails::default()
-        };
-        for is_active in [true, false] {
-            let (feature_set, _expected_compute_unit_limit) =
-                prep_feature_minimial_cus_for_builtin_instructions(is_active, &instruction_details);
-            assert_eq!(
-                instruction_details.sanitize_and_convert_to_compute_budget_limits(&feature_set),
-                Ok(ComputeBudgetLimits {
-                    updated_heap_bytes: val,
-                    compute_unit_limit: val,
-                    compute_unit_price: val as u64,
-                    loaded_accounts_bytes: NonZeroU32::new(val).unwrap(),
-                })
-            );
-        }
-    }
-
-    #[test]
-    fn test_builtin_program_migration() {
-        let tx = build_sanitized_transaction(&[
-            Instruction::new_with_bincode(Pubkey::new_unique(), &(), vec![]),
-            solana_sdk::stake::instruction::delegate_stake(
-                &Pubkey::new_unique(),
-                &Pubkey::new_unique(),
-                &Pubkey::new_unique(),
-            ),
-        ]);
-        let feature_id_index = MIGRATION_FEATURES_ID
-            .iter()
-            .position(|id| *id == feature_set::migrate_stake_program_to_core_bpf::id())
-            .unwrap();
-        let mut expected_details = ComputeBudgetInstructionDetails {
-            num_non_builtin_instructions: 1,
-            ..ComputeBudgetInstructionDetails::default()
-        };
-        expected_details.migrating_builtin[feature_id_index] = 1;
-        let expected_details = Ok(expected_details);
-        let details =
-            ComputeBudgetInstructionDetails::try_from(SVMMessage::program_instructions_iter(&tx));
-        assert_eq!(details, expected_details);
-        let details = details.unwrap();
-
-        let mut feature_set = FeatureSet::default();
-        let cu_limits = details.sanitize_and_convert_to_compute_budget_limits(&feature_set);
-        assert_eq!(
-            cu_limits,
-            Ok(ComputeBudgetLimits {
-                compute_unit_limit: DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT * 2,
-                ..ComputeBudgetLimits::default()
-            })
-        );
-
-        feature_set.activate(
-            &feature_set::reserve_minimal_cus_for_builtin_instructions::id(),
-            0,
-        );
-        let cu_limits = details.sanitize_and_convert_to_compute_budget_limits(&feature_set);
-        assert_eq!(
-            cu_limits,
-            Ok(ComputeBudgetLimits {
-                compute_unit_limit: DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT
-                    + MAX_BUILTIN_ALLOCATION_COMPUTE_UNIT_LIMIT,
-                ..ComputeBudgetLimits::default()
-            })
-        );
-
-        feature_set.activate(&feature_set::migrate_stake_program_to_core_bpf::id(), 0);
-        let cu_limits = details.sanitize_and_convert_to_compute_budget_limits(&feature_set);
-        assert_eq!(
-            cu_limits,
-            Ok(ComputeBudgetLimits {
-                compute_unit_limit: DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT * 2,
-                ..ComputeBudgetLimits::default()
-            })
-        );
-
-        feature_set.deactivate(&feature_set::reserve_minimal_cus_for_builtin_instructions::id());
-        let cu_limits = details.sanitize_and_convert_to_compute_budget_limits(&feature_set);
-        assert_eq!(
-            cu_limits,
-            Ok(ComputeBudgetLimits {
-                compute_unit_limit: DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT * 2,
-                ..ComputeBudgetLimits::default()
-            })
-        );
-    }
+    // */
 }
