@@ -68,11 +68,14 @@ pub mod leader_slot_metrics;
 pub mod qos_service;
 pub mod unprocessed_packet_batches;
 pub mod unprocessed_transaction_storage;
+// made public for benching scheduler
+pub mod scheduler_messages;
+pub mod transaction_scheduler;
 
 mod consume_worker;
 mod decision_maker;
 mod forward_packet_batches_by_accounts;
-mod immutable_deserialized_packet;
+pub mod immutable_deserialized_packet;
 mod latest_unprocessed_votes;
 mod leader_slot_timing_metrics;
 mod multi_iterator_scanner;
@@ -80,8 +83,6 @@ mod packet_deserializer;
 mod packet_filter;
 mod packet_receiver;
 mod read_write_account_set;
-mod scheduler_messages;
-mod transaction_scheduler;
 
 // Fixed thread size seems to be fastest on GCP setup
 pub const NUM_THREADS: u32 = 6;
