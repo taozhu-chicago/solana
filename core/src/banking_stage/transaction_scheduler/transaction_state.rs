@@ -7,9 +7,9 @@ use {
 };
 
 /// Simple wrapper type to tie a sanitized transaction to max age slot.
-pub(crate) struct SanitizedTransactionTTL<Tx> {
-    pub(crate) transaction: Tx,
-    pub(crate) max_age: MaxAge,
+pub struct SanitizedTransactionTTL<Tx> {
+    pub transaction: Tx,
+    pub max_age: MaxAge,
 }
 
 /// TransactionState is used to track the state of a transaction in the transaction scheduler
@@ -32,7 +32,7 @@ pub(crate) struct SanitizedTransactionTTL<Tx> {
 ///   to the appropriate thread for processing. This is done to avoid cloning the
 ///  `SanitizedTransaction`.
 #[allow(clippy::large_enum_variant)]
-pub(crate) enum TransactionState<Tx> {
+pub enum TransactionState<Tx> {
     /// The transaction is available for scheduling.
     Unprocessed {
         transaction_ttl: SanitizedTransactionTTL<Tx>,

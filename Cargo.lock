@@ -7212,6 +7212,7 @@ dependencies = [
  "bs58",
  "bytes",
  "chrono",
+ "criterion",
  "crossbeam-channel",
  "dashmap",
  "etcd-client",
@@ -7301,6 +7302,7 @@ dependencies = [
  "tempfile",
  "test-case",
  "thiserror 2.0.11",
+ "tikv-jemallocator",
  "tokio",
  "trees",
 ]
